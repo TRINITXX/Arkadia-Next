@@ -101,6 +101,13 @@ import {
   TerminalWriteInput,
 } from "./terminal.ts";
 import {
+  VoiceAppendAudioInput,
+  VoiceError,
+  VoiceStartInput,
+  VoiceStopInput,
+  VoiceTranscriptEvent,
+} from "./voice.ts";
+import {
   DiscoveredLocalServerList,
   PreviewCloseInput,
   PreviewError,
@@ -206,6 +213,11 @@ export const WS_METHODS = {
   terminalClear: "terminal.clear",
   terminalRestart: "terminal.restart",
   terminalClose: "terminal.close",
+
+  // Voice dictation methods
+  voiceStart: "voice.start",
+  voiceAppendAudio: "voice.appendAudio",
+  voiceStop: "voice.stop",
 
   // Preview methods
   previewOpen: "preview.open",
@@ -605,6 +617,28 @@ export const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
   error: Schema.Union([TerminalError, EnvironmentAuthorizationError]),
 });
 
+/**
+ * Ouvre une session de dictée et tient le flux de transcriptions ouvert. Le
+ * client pousse ensuite l'audio par `voice.appendAudio` et clôt par
+ * `voice.stop` ; la fermeture du stream libère la session côté serveur.
+ */
+export const WsVoiceStartRpc = Rpc.make(WS_METHODS.voiceStart, {
+  payload: VoiceStartInput,
+  success: VoiceTranscriptEvent,
+  error: Schema.Union([VoiceError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsVoiceAppendAudioRpc = Rpc.make(WS_METHODS.voiceAppendAudio, {
+  payload: VoiceAppendAudioInput,
+  error: Schema.Union([VoiceError, EnvironmentAuthorizationError]),
+});
+
+export const WsVoiceStopRpc = Rpc.make(WS_METHODS.voiceStop, {
+  payload: VoiceStopInput,
+  error: Schema.Union([VoiceError, EnvironmentAuthorizationError]),
+});
+
 export const WsPreviewOpenRpc = Rpc.make(WS_METHODS.previewOpen, {
   payload: PreviewOpenInput,
   success: PreviewSessionSnapshot,
@@ -839,6 +873,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalCloseRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeTerminalMetadataRpc,
+  WsVoiceStartRpc,
+  WsVoiceAppendAudioRpc,
+  WsVoiceStopRpc,
   WsPreviewOpenRpc,
   WsPreviewNavigateRpc,
   WsPreviewResizeRpc,

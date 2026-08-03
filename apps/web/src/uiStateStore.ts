@@ -27,6 +27,7 @@ export interface PersistedUiState {
   defaultAdvertisedEndpointKey?: string | null;
   threadChangedFilesExpansionVersion?: typeof THREAD_CHANGED_FILES_EXPANSION_VERSION;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
+  closedWorkspaceTabKeys?: string[];
 }
 
 export interface UiProjectState {
@@ -37,6 +38,13 @@ export interface UiProjectState {
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
+  /**
+   * Conversations the user closed in the workspace tab bar, keyed by
+   * `<environmentId>:<threadId>`. Closing a tab is a window-local gesture and
+   * never archives or deletes the conversation, so this list lives here rather
+   * than on the server.
+   */
+  closedWorkspaceTabKeys: string[];
 }
 
 export interface UiEndpointState {
@@ -50,6 +58,7 @@ const initialState: UiState = {
   projectOrder: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
+  closedWorkspaceTabKeys: [],
   defaultAdvertisedEndpointKey: null,
 };
 
@@ -130,6 +139,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
         : {},
+    closedWorkspaceTabKeys: sanitizeStringArray(parsed.closedWorkspaceTabKeys),
     defaultAdvertisedEndpointKey:
       typeof parsed.defaultAdvertisedEndpointKey === "string" &&
       parsed.defaultAdvertisedEndpointKey.length > 0
@@ -207,6 +217,7 @@ export function persistState(state: UiState): void {
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
+        closedWorkspaceTabKeys: state.closedWorkspaceTabKeys,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -381,7 +392,26 @@ export function reorderProjects(
   };
 }
 
+export function closeWorkspaceTab(state: UiState, tabKey: string): UiState {
+  if (state.closedWorkspaceTabKeys.includes(tabKey)) {
+    return state;
+  }
+  return { ...state, closedWorkspaceTabKeys: [...state.closedWorkspaceTabKeys, tabKey] };
+}
+
+export function reopenWorkspaceTab(state: UiState, tabKey: string): UiState {
+  if (!state.closedWorkspaceTabKeys.includes(tabKey)) {
+    return state;
+  }
+  return {
+    ...state,
+    closedWorkspaceTabKeys: state.closedWorkspaceTabKeys.filter((key) => key !== tabKey),
+  };
+}
+
 interface UiStateStore extends UiState {
+  closeWorkspaceTab: (tabKey: string) => void;
+  reopenWorkspaceTab: (tabKey: string) => void;
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
@@ -396,6 +426,8 @@ interface UiStateStore extends UiState {
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
+  closeWorkspaceTab: (tabKey) => set((state) => closeWorkspaceTab(state, tabKey)),
+  reopenWorkspaceTab: (tabKey) => set((state) => reopenWorkspaceTab(state, tabKey)),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>

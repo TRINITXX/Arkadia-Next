@@ -85,6 +85,7 @@ import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as VoiceService from "./voice/VoiceService.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import { issueAssetUrl } from "./assets/AssetAccess.ts";
@@ -363,6 +364,7 @@ const makeWsRpcLayer = (
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
+      const voiceService = yield* VoiceService.VoiceService;
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -1873,6 +1875,18 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.terminalWrite, terminalManager.write(input), {
             "rpc.aggregate": "terminal",
           }),
+        [WS_METHODS.voiceStart]: (input) =>
+          observeRpcStream(WS_METHODS.voiceStart, voiceService.start(input), {
+            "rpc.aggregate": "voice",
+          }),
+        [WS_METHODS.voiceAppendAudio]: (input) =>
+          observeRpcEffect(WS_METHODS.voiceAppendAudio, voiceService.appendAudio(input), {
+            "rpc.aggregate": "voice",
+          }),
+        [WS_METHODS.voiceStop]: (input) =>
+          observeRpcEffect(WS_METHODS.voiceStop, voiceService.stop(input), {
+            "rpc.aggregate": "voice",
+          }),
         [WS_METHODS.terminalResize]: (input) =>
           observeRpcEffect(WS_METHODS.terminalResize, terminalManager.resize(input), {
             "rpc.aggregate": "terminal",
@@ -2130,6 +2144,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           Effect.provide(
             makeWsRpcLayer(session, previewAutomationBroker).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provide(VoiceService.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               Layer.provide(

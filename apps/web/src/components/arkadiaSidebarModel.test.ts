@@ -106,18 +106,24 @@ describe("buildArkadiaSidebarGroups", () => {
     expect(groups.inactive[0]?.threads.map((item) => item.id)).toEqual(["settled"]);
   });
 
-  it("sorts child conversations by most recent update", () => {
+  it("appends newer conversations below the existing ones, like the tab bar", () => {
     const groups = buildArkadiaSidebarGroups({
       projects: [project("alpha", "Alpha")],
       threads: [
-        thread("older", "alpha", { updatedAt: "2026-08-02T10:00:00.000Z" }),
-        thread("newer", "alpha", { updatedAt: "2026-08-03T09:00:00.000Z" }),
+        thread("newer", "alpha", {
+          createdAt: "2026-08-02T09:00:00.000Z",
+          updatedAt: "2026-08-03T09:00:00.000Z",
+        }),
+        thread("older", "alpha", {
+          createdAt: "2026-08-01T09:00:00.000Z",
+          updatedAt: "2026-08-02T10:00:00.000Z",
+        }),
       ],
       now: NOW,
       autoSettleAfterDays: 3,
     });
 
-    expect(groups.active[0]?.threads.map((item) => item.id)).toEqual(["newer", "older"]);
+    expect(groups.active[0]?.threads.map((item) => item.id)).toEqual(["older", "newer"]);
   });
 });
 
@@ -197,6 +203,7 @@ describe("Arkadia workspace tabs", () => {
           environmentId: string;
           projectId: string;
           currentThreadId: string | null;
+          closedTabKeys: ReadonlySet<string>;
           now: string;
           autoSettleAfterDays: number | null;
         }) => ReadonlyArray<EnvironmentThreadShell>;
@@ -205,6 +212,7 @@ describe("Arkadia workspace tabs", () => {
     expect(typeof buildArkadiaWorkspaceTabs).toBe("function");
 
     const tabs = buildArkadiaWorkspaceTabs({
+      closedTabKeys: new Set<string>(),
       threads: [
         thread("second", "alpha", {
           createdAt: "2026-08-02T09:00:00.000Z",
@@ -236,6 +244,7 @@ describe("Arkadia workspace tabs", () => {
           environmentId: string;
           projectId: string;
           currentThreadId: string | null;
+          closedTabKeys: ReadonlySet<string>;
           now: string;
           autoSettleAfterDays: number | null;
         }) => ReadonlyArray<EnvironmentThreadShell>;
@@ -247,11 +256,53 @@ describe("Arkadia workspace tabs", () => {
       environmentId: "local",
       projectId: "alpha",
       currentThreadId: "selected",
+      closedTabKeys: new Set<string>(),
       now: NOW,
       autoSettleAfterDays: 3,
     });
 
     expect(tabs.map((item) => item.id)).toEqual(["selected"]);
+  });
+
+  it("hides conversations the user closed, unless one is the open conversation", () => {
+    const buildArkadiaWorkspaceTabs = (
+      arkadiaSidebarModel as typeof arkadiaSidebarModel & {
+        buildArkadiaWorkspaceTabs: (input: {
+          threads: ReadonlyArray<EnvironmentThreadShell>;
+          environmentId: string;
+          projectId: string;
+          currentThreadId: string | null;
+          closedTabKeys: ReadonlySet<string>;
+          now: string;
+          autoSettleAfterDays: number | null;
+        }) => ReadonlyArray<EnvironmentThreadShell>;
+      }
+    ).buildArkadiaWorkspaceTabs;
+    const arkadiaWorkspaceTabKey = (
+      arkadiaSidebarModel as typeof arkadiaSidebarModel & {
+        arkadiaWorkspaceTabKey: (environmentId: string, threadId: string) => string;
+      }
+    ).arkadiaWorkspaceTabKey;
+    expect(typeof arkadiaWorkspaceTabKey).toBe("function");
+
+    const tabs = buildArkadiaWorkspaceTabs({
+      threads: [
+        thread("kept", "alpha", { createdAt: "2026-08-01T09:00:00.000Z" }),
+        thread("closed", "alpha", { createdAt: "2026-08-02T09:00:00.000Z" }),
+        thread("closed-but-open", "alpha", { createdAt: "2026-08-03T09:00:00.000Z" }),
+      ],
+      environmentId: "local",
+      projectId: "alpha",
+      currentThreadId: "closed-but-open",
+      closedTabKeys: new Set([
+        arkadiaWorkspaceTabKey("local", "closed"),
+        arkadiaWorkspaceTabKey("local", "closed-but-open"),
+      ]),
+      now: NOW,
+      autoSettleAfterDays: 3,
+    });
+
+    expect(tabs.map((item) => item.id)).toEqual(["kept", "closed-but-open"]);
   });
 
   it("selects the adjacent tab after the current tab closes", () => {

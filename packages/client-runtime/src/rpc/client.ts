@@ -57,7 +57,10 @@ export type EnvironmentSubscriptionRpcTag =
 export type EnvironmentStreamCommandRpcTag =
   | typeof WS_METHODS.cloudInstallRelayClient
   | typeof WS_METHODS.serverUpdateServerWithProgress
-  | typeof WS_METHODS.gitRunStackedAction;
+  | typeof WS_METHODS.gitRunStackedAction
+  // Une session de dictée ne doit pas se rouvrir toute seule après une
+  // reconnexion : c'est une commande qui diffuse, pas un abonnement.
+  | typeof WS_METHODS.voiceStart;
 
 export type EnvironmentStreamRpcTag =
   | EnvironmentSubscriptionRpcTag

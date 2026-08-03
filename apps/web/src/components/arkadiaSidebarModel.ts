@@ -52,26 +52,39 @@ export function resolveArkadiaDraftTabId(
   return null;
 }
 
+/** Stable identity of a tab across environments, used by the closed-tab store. */
+export function arkadiaWorkspaceTabKey(environmentId: string, threadId: string): string {
+  return `${environmentId}:${threadId}`;
+}
+
 export function buildArkadiaWorkspaceTabs(input: {
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly environmentId: string;
   readonly projectId: string;
   readonly currentThreadId: string | null;
+  /**
+   * Tabs the user closed with the cross. Closing is a window-local gesture, so
+   * it hides the tab even when the conversation stays active server-side —
+   * except for the conversation currently on screen, which must stay reachable.
+   */
+  readonly closedTabKeys: ReadonlySet<string>;
   readonly now: string;
   readonly autoSettleAfterDays: number | null;
 }): ReadonlyArray<EnvironmentThreadShell> {
   return input.threads
-    .filter(
-      (thread) =>
-        thread.environmentId === input.environmentId &&
-        thread.projectId === input.projectId &&
-        thread.archivedAt === null &&
-        (thread.id === input.currentThreadId ||
-          !effectiveSettled(thread, {
-            now: input.now,
-            autoSettleAfterDays: input.autoSettleAfterDays,
-          })),
-    )
+    .filter((thread) => {
+      if (thread.environmentId !== input.environmentId) return false;
+      if (thread.projectId !== input.projectId) return false;
+      if (thread.archivedAt !== null) return false;
+      if (thread.id === input.currentThreadId) return true;
+      if (input.closedTabKeys.has(arkadiaWorkspaceTabKey(thread.environmentId, thread.id))) {
+        return false;
+      }
+      return !effectiveSettled(thread, {
+        now: input.now,
+        autoSettleAfterDays: input.autoSettleAfterDays,
+      });
+    })
     .toSorted((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
 }
 
@@ -160,8 +173,11 @@ function compareProjects(
   });
 }
 
+// Creation order, oldest first: the sidebar mirrors the tab bar, so a new
+// conversation lands at the bottom of its project instead of jumping to the top
+// every time the agent touches an older one.
 function compareThreads(left: EnvironmentThreadShell, right: EnvironmentThreadShell): number {
-  return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+  return Date.parse(left.createdAt) - Date.parse(right.createdAt);
 }
 
 export function buildArkadiaSidebarGroups(input: {

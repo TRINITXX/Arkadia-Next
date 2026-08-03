@@ -1,9 +1,10 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { canSettle, effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import { Plus, X } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useClientSettings } from "../hooks/useSettings";
@@ -11,8 +12,12 @@ import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useThreadShells } from "../state/entities";
+import { threadEnvironment } from "../state/threads";
+import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
+import { useUiStateStore } from "../uiStateStore";
 import {
+  arkadiaWorkspaceTabKey,
   buildArkadiaWorkspaceTabs,
   resolveArkadiaDraftTabId,
   resolveArkadiaTabAfterClose,
@@ -56,6 +61,13 @@ export default function ArkadiaWorkspaceTabs({
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
   const { settleThread } = useThreadActions();
+  const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
+    reportFailure: false,
+  });
+  const closedTabKeyList = useUiStateStore((store) => store.closedWorkspaceTabKeys);
+  const closeWorkspaceTab = useUiStateStore((store) => store.closeWorkspaceTab);
+  const reopenWorkspaceTab = useUiStateStore((store) => store.reopenWorkspaceTab);
+  const closedTabKeys = useMemo(() => new Set(closedTabKeyList), [closedTabKeyList]);
   const projectRef = useMemo(
     () => scopeProjectRef(environmentId, projectId),
     [environmentId, projectId],
@@ -84,11 +96,28 @@ export default function ArkadiaWorkspaceTabs({
         environmentId,
         projectId,
         currentThreadId: activeThreadId,
+        closedTabKeys,
         now: `${nowMinute}:00.000Z`,
         autoSettleAfterDays,
       }),
-    [activeThreadId, autoSettleAfterDays, environmentId, nowMinute, projectId, threads],
+    [
+      activeThreadId,
+      autoSettleAfterDays,
+      closedTabKeys,
+      environmentId,
+      nowMinute,
+      projectId,
+      threads,
+    ],
   );
+
+  // Opening a closed conversation again (from the sidebar, a link, anywhere)
+  // brings its tab back for good. Keyed on the active conversation alone so
+  // closing the tab you are on does not immediately undo itself.
+  useEffect(() => {
+    if (activeThreadId === null) return;
+    reopenWorkspaceTab(arkadiaWorkspaceTabKey(environmentId, activeThreadId));
+  }, [activeThreadId, environmentId, reopenWorkspaceTab]);
 
   const openThread = useCallback(
     (thread: EnvironmentThreadShell) => {
@@ -108,10 +137,55 @@ export default function ArkadiaWorkspaceTabs({
     });
   }, [router, visibleDraft]);
 
+  const clearDraftThread = useComposerDraftStore((store) => store.clearDraftThread);
+
+  // Closing the draft tab discards the draft outright: nothing exists
+  // server-side yet, so there is no session to stop and nothing to settle.
+  // When the draft is on screen, navigate away first — clearing while its
+  // route is mounted would trigger that route's own "draft is gone" redirect
+  // to the home page and race the navigation to the fallback tab.
+  const closeDraft = useCallback(() => {
+    if (!visibleDraft) return;
+    if (activeDraftId !== visibleDraft.draftId) {
+      clearDraftThread(visibleDraft.draftId);
+      return;
+    }
+    const fallback = tabs[tabs.length - 1];
+    void (
+      fallback
+        ? router.navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(scopeThreadRef(fallback.environmentId, fallback.id)),
+          })
+        : router.navigate({ to: "/" })
+    ).then(() => clearDraftThread(visibleDraft.draftId));
+  }, [activeDraftId, clearDraftThread, router, tabs, visibleDraft]);
+
+  // Closing a tab always closes it, whatever the agent is doing: the tab
+  // disappears from this window immediately, the running agent is stopped, and
+  // the conversation itself is only settled (never archived or deleted), so it
+  // stays one click away in the sidebar.
   const closeThread = useCallback(
     async (thread: EnvironmentThreadShell) => {
-      const result = await settleThread(scopeThreadRef(thread.environmentId, thread.id));
-      if (result._tag !== "Success" || thread.id !== activeThreadId) return;
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      closeWorkspaceTab(arkadiaWorkspaceTabKey(thread.environmentId, thread.id));
+
+      // Stopping and settling run alongside the navigation: the tab is already
+      // gone from the bar, and neither command needs this component alive.
+      void (async () => {
+        if (thread.session !== null && thread.session.status !== "stopped") {
+          await stopThreadSession({
+            environmentId: threadRef.environmentId,
+            input: { threadId: threadRef.threadId },
+          });
+        }
+        // Best effort: the server refuses to settle a thread that is still live
+        // or blocked on an answer. The pending-settle effect picks it up again
+        // once the shell reports the thread as quiet.
+        await settleThread(threadRef);
+      })();
+
+      if (thread.id !== activeThreadId) return;
 
       const fallbackId = resolveArkadiaTabAfterClose(
         tabs.map((item) => item.id),
@@ -130,15 +204,47 @@ export default function ArkadiaWorkspaceTabs({
     },
     [
       activeThreadId,
+      closeWorkspaceTab,
       handleNewThread,
       openDraft,
       openThread,
       projectRef,
       settleThread,
+      stopThreadSession,
       tabs,
       visibleDraft,
     ],
   );
+
+  // A closed tab whose conversation is still classified active would resurface
+  // in the sidebar's Active list. Settle it as soon as the shell says it is
+  // quiet — driven by shell updates, never by a timer.
+  const settlingTabKeysRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const now = `${nowMinute}:00.000Z`;
+    for (const thread of threads) {
+      if (thread.environmentId !== environmentId || thread.archivedAt !== null) continue;
+      if (thread.id === activeThreadId) continue;
+      const tabKey = arkadiaWorkspaceTabKey(thread.environmentId, thread.id);
+      if (!closedTabKeys.has(tabKey)) continue;
+      if (settlingTabKeysRef.current.has(tabKey)) continue;
+      if (effectiveSettled(thread, { now, autoSettleAfterDays })) continue;
+      if (!canSettle(thread, { now })) continue;
+
+      settlingTabKeysRef.current.add(tabKey);
+      void settleThread(scopeThreadRef(thread.environmentId, thread.id)).finally(() => {
+        settlingTabKeysRef.current.delete(tabKey);
+      });
+    }
+  }, [
+    activeThreadId,
+    autoSettleAfterDays,
+    closedTabKeys,
+    environmentId,
+    nowMinute,
+    settleThread,
+    threads,
+  ]);
 
   return (
     <div
@@ -186,27 +292,54 @@ export default function ArkadiaWorkspaceTabs({
         })}
 
         {visibleDraft ? (
-          <button
-            type="button"
-            className={`flex min-w-[120px] max-w-[220px] items-center gap-2 border-r border-zinc-800 px-3 text-left text-xs ${
+          <div
+            className={`group flex min-w-[120px] max-w-[220px] cursor-pointer items-center gap-2 border-r border-zinc-800 px-3 text-xs [-webkit-app-region:no-drag] ${
               activeDraftId === visibleDraft.draftId
                 ? "bg-zinc-900 text-zinc-100"
                 : "bg-zinc-950 text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-200"
             }`}
+            onAuxClick={(event) => {
+              if (event.button !== 1) return;
+              event.preventDefault();
+              closeDraft();
+            }}
             onClick={openDraft}
             title="Nouvelle conversation"
           >
             <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
-            <span className="truncate font-medium">Nouvelle conversation</span>
-          </button>
+            <span className="min-w-0 flex-1 truncate font-medium">Nouvelle conversation</span>
+            <button
+              type="button"
+              aria-label="Fermer la nouvelle conversation"
+              className={`flex size-4 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100 ${
+                activeDraftId === visibleDraft.draftId
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+              }`}
+              onClick={(event) => {
+                event.stopPropagation();
+                closeDraft();
+              }}
+            >
+              <X size={12} strokeWidth={2} />
+            </button>
+          </div>
         ) : null}
 
+        {/* Never disabled: a project keeps a single pending draft, so the plus
+            either opens a brand new conversation or jumps to the one already
+            waiting — it always lands the user on an agent view. */}
         <button
           type="button"
-          className="flex w-9 shrink-0 items-center justify-center text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200 disabled:cursor-default disabled:opacity-35"
-          disabled={visibleDraft !== null}
-          onClick={() => void handleNewThread(projectRef)}
-          title={visibleDraft ? "Une nouvelle conversation est déjà ouverte" : "Nouvel onglet"}
+          className="flex w-9 shrink-0 items-center justify-center text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
+          onClick={() => {
+            if (visibleDraft) {
+              openDraft();
+              return;
+            }
+            void handleNewThread(projectRef);
+          }}
+          title="Nouvel onglet"
           aria-label="Nouvel onglet"
         >
           <Plus size={14} strokeWidth={1.75} />

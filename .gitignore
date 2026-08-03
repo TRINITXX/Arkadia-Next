@@ -1,6 +1,7 @@
 node_modules
 .bun
 .turbo
+.scratch/
 .DS_Store
 *.log
 *.tsbuildinfo

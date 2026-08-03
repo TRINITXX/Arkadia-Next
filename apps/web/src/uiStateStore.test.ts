@@ -2,6 +2,7 @@ import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  closeWorkspaceTab,
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
@@ -9,6 +10,7 @@ import {
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
+  reopenWorkspaceTab,
   reorderProjects,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
@@ -23,12 +25,23 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
+    closedWorkspaceTabKeys: [],
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
 }
 
 describe("uiStateStore pure functions", () => {
+  it("remembers closed workspace tabs until they are reopened", () => {
+    const state = makeUiState();
+    const closed = closeWorkspaceTab(state, "local:thread-1");
+
+    expect(closed.closedWorkspaceTabKeys).toEqual(["local:thread-1"]);
+    expect(closeWorkspaceTab(closed, "local:thread-1")).toBe(closed);
+    expect(reopenWorkspaceTab(closed, "local:thread-1").closedWorkspaceTabKeys).toEqual([]);
+    expect(reopenWorkspaceTab(state, "local:thread-1")).toBe(state);
+  });
+
   it("stores server timestamps without moving visit state backwards", () => {
     const threadId = ThreadId.make("thread-1");
     const initialState = makeUiState();
@@ -183,6 +196,7 @@ describe("parsePersistedState", () => {
           "turn-2": true,
         },
       },
+      closedWorkspaceTabKeys: [],
     });
   });
 
@@ -303,6 +317,7 @@ describe("uiStateStore persistence", () => {
           "turn-2": true,
         },
       },
+      closedWorkspaceTabKeys: [],
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,

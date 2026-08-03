@@ -43,6 +43,8 @@ import {
   shouldSubmitComposerOnEnter,
 } from "../../composer-logic";
 import { deriveComposerSendState, readFileAsDataUrl } from "../ChatView.logic";
+import { useDictation } from "../../voice/useDictation";
+import { VoiceSessionListener } from "../../voice/VoiceSessionListener";
 import {
   dataTransferHasComposerMention,
   makeComposerMentionDragHandlers,
@@ -173,8 +175,10 @@ import {
   BotIcon,
   CircleAlertIcon,
   ListTodoIcon,
+  MicIcon,
   PencilRulerIcon,
   type LucideIcon,
+  LoaderIcon,
   LockIcon,
   LockOpenIcon,
   PenLineIcon,
@@ -2452,6 +2456,143 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     );
   };
 
+  /**
+   * Le texte dicté s'écrit dans le composeur au fil de la parole. On retient où
+   * il commence et sa longueur courante pour réécrire cette portion à chaque
+   * mise à jour, sans toucher à ce que l'utilisateur avait déjà tapé.
+   */
+  const dictationAnchorRef = useRef<number | null>(null);
+  const dictationLengthRef = useRef(0);
+
+  const writeDictationText = (text: string): void => {
+    if (dictationAnchorRef.current === null) {
+      const snapshot = readComposerSnapshot();
+      let anchor = snapshot.cursor;
+      // Coller la dictée à un mot déjà écrit rendrait le résultat illisible.
+      if (anchor > 0 && !/\s$/.test(snapshot.value.slice(0, anchor))) {
+        if (applyPromptReplacement(anchor, anchor, " ", { focusEditorAfterReplace: false })) {
+          anchor += 1;
+        }
+      }
+      dictationAnchorRef.current = anchor;
+      dictationLengthRef.current = 0;
+    }
+
+    const anchor = dictationAnchorRef.current;
+    if (
+      applyPromptReplacement(anchor, anchor + dictationLengthRef.current, text, {
+        focusEditorAfterReplace: false,
+      })
+    ) {
+      dictationLengthRef.current = text.length;
+    }
+  };
+
+  const dictation = useDictation({
+    environmentId,
+    onPreview: writeDictationText,
+    onTranscript: (text) => {
+      writeDictationText(text);
+      // L'énoncé est figé : la phrase suivante s'écrira après lui.
+      const anchor = dictationAnchorRef.current;
+      if (anchor !== null) dictationAnchorRef.current = anchor + text.length;
+      dictationLengthRef.current = 0;
+    },
+    onDiscardPreview: () => {
+      const anchor = dictationAnchorRef.current;
+      if (anchor !== null && dictationLengthRef.current > 0) {
+        applyPromptReplacement(anchor, anchor + dictationLengthRef.current, "", {
+          focusEditorAfterReplace: false,
+        });
+      }
+      dictationLengthRef.current = 0;
+    },
+    onRemoveTypedSpace: () => {
+      // L'espace du geste s'est inséré normalement avant qu'on sache que
+      // l'appui serait maintenu : on le retire au moment où le micro s'ouvre.
+      const snapshot = readComposerSnapshot();
+      const cursor = snapshot.cursor;
+      if (cursor > 0 && snapshot.value.slice(cursor - 1, cursor) === " ") {
+        applyPromptReplacement(cursor - 1, cursor, "", { focusEditorAfterReplace: false });
+      }
+    },
+    onError: (message) => {
+      toastManager.add({ type: "error", title: "Dictée vocale", description: message });
+    },
+  });
+
+  // Chaque prise de parole repart d'un ancrage neuf.
+  useEffect(() => {
+    if (dictation.sessionId === null) {
+      dictationAnchorRef.current = null;
+      dictationLengthRef.current = 0;
+    }
+  }, [dictation.sessionId]);
+
+  // Maintenir la barre d'espace sur un composeur vide lance la dictée, la
+  // relâcher l'arrête. Un espace en tête de composeur vide n'écrit rien : le
+  // geste ne prend donc jamais la place d'une frappe réelle.
+  const dictationSend = dictation.send;
+  const dictationCancel = dictation.cancel;
+  const dictationBusy = dictation.busy;
+
+  useEffect(() => {
+    const isComposerBusy = () =>
+      isConnecting ||
+      isComposerApprovalState ||
+      pendingUserInputs.length > 0 ||
+      projectSelectionRequired;
+
+    /**
+     * Le geste ne vaut que si la frappe irait au composeur. Ailleurs — une
+     * recherche, un champ de dialogue — l'espace doit rester un espace.
+     */
+    const spaceBelongsToComposer = () => {
+      const active = document.activeElement;
+      if (active === null || active === document.body) return true;
+      return active.closest("[data-chat-composer-form='true']") !== null;
+    };
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape" && dictationBusy) {
+        event.preventDefault();
+        dictationCancel();
+        return;
+      }
+      if (event.code !== "Space" || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (isCommandPaletteOpen() || isComposerBusy() || !spaceBelongsToComposer()) return;
+
+      const composerEmpty = promptRef.current.trim().length === 0;
+
+      // Sur un composeur vide, l'espace n'écrirait rien d'utile : on le bloque.
+      // Sinon on laisse passer le premier — la frappe normale ne doit jamais
+      // être retardée — et on ne retient que les répétitions du clavier.
+      if (composerEmpty || event.repeat) event.preventDefault();
+      if (event.repeat) return;
+      dictationSend({ type: "spaceDown", composerEmpty });
+    };
+
+    const onKeyUp = (event: globalThis.KeyboardEvent) => {
+      if (event.code === "Space") dictationSend({ type: "spaceUp" });
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
+  }, [
+    dictationBusy,
+    dictationCancel,
+    dictationSend,
+    isComposerApprovalState,
+    isConnecting,
+    pendingUserInputs.length,
+    projectSelectionRequired,
+    promptRef,
+  ]);
+
   // File-tree drags land as mentions. Handled in the capture phase so the
   // editor never sees the drop; the load-bearing rules (native stop, "move"
   // effect, no eager focus) live in makeComposerMentionDragHandlers.
@@ -2669,6 +2810,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       className="mx-auto w-full min-w-0 max-w-3xl"
       data-chat-composer-form="true"
     >
+      {dictation.sessionId === null ? null : (
+        <VoiceSessionListener
+          environmentId={environmentId}
+          sessionId={dictation.sessionId}
+          language="fr"
+          send={dictation.send}
+        />
+      )}
       <div
         className={cn(
           "group rounded-[22px] p-px transition-colors duration-200",
@@ -3123,6 +3272,43 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               )}
             >
               <div className="-m-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <ComposerControl
+                        className={cn(
+                          "shrink-0 whitespace-nowrap",
+                          dictation.recording
+                            ? "bg-red-500/10 text-red-400 hover:bg-red-500/15 hover:text-red-300"
+                            : "text-muted-foreground/70 hover:text-foreground/80",
+                        )}
+                        type="button"
+                        onClick={dictation.toggle}
+                        aria-label={dictation.recording ? "Arrêter la dictée" : "Dicter"}
+                        aria-pressed={dictation.recording}
+                      />
+                    }
+                  >
+                    {dictation.state.kind === "finishing" ? (
+                      <ComposerControlIcon
+                        icon={LoaderIcon}
+                        className="animate-spin text-current opacity-100"
+                      />
+                    ) : (
+                      <ComposerControlIcon
+                        icon={MicIcon}
+                        {...(dictation.recording
+                          ? { className: "animate-dictation-pulse text-current opacity-100" }
+                          : {})}
+                      />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">
+                    {dictation.recording
+                      ? "Relâchez pour transcrire"
+                      : "Dicter — ou maintenez la barre d'espace"}
+                  </TooltipPopup>
+                </Tooltip>
                 {noProviderAvailable ? (
                   <Button
                     type="button"
