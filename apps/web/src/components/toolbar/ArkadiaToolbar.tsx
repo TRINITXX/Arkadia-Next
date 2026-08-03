@@ -5,14 +5,19 @@ import {
   PanelLeftOpen,
   Settings as SettingsIcon,
 } from "lucide-react";
+import type { ToolbarActionButton as ToolbarActionButtonModel } from "@t3tools/contracts";
 
 import { useSidebar } from "~/components/ui/sidebar";
+import { useClientSettings } from "~/hooks/useSettings";
+import { ToolbarActionButton } from "./ToolbarActionButton";
+import { ToolbarFolderButton } from "./ToolbarFolderButton";
+import { sortedToolbarChildren } from "./toolbarFolderNav";
 
 /**
  * The Arkadia toolbar shell that replaces the old chat header. Ported from
  * Arkadia's `src/components/Toolbar.tsx:55-142`, stripped to what this task
- * needs: the sidebar toggle, a flexible middle region (Task 3 fills it with
- * the user's toolbar buttons), the settings entry point, and the terminal
+ * needs: the sidebar toggle, a flexible middle region rendering the user's
+ * customisable button tree, the settings entry point, and the terminal
  * button. The notepad button is Task 5's job and is intentionally absent —
  * an inert placeholder would ship a dead control.
  */
@@ -20,12 +25,21 @@ import { useSidebar } from "~/components/ui/sidebar";
 interface ArkadiaToolbarProps {
   terminalAvailable: boolean;
   onOpenNewTerminal: () => void;
+  /** Runs an action button's command — always in a brand-new terminal. */
+  onRunAction: (command: string) => void;
 }
 
-export function ArkadiaToolbar({ terminalAvailable, onOpenNewTerminal }: ArkadiaToolbarProps) {
+export function ArkadiaToolbar({
+  terminalAvailable,
+  onOpenNewTerminal,
+  onRunAction,
+}: ArkadiaToolbarProps) {
   const navigate = useNavigate();
   const { state, toggleSidebar } = useSidebar();
   const sidebarOpen = state === "expanded";
+  const toolbarButtons = useClientSettings((s) => s.toolbarButtons);
+  const sortedButtons = sortedToolbarChildren(toolbarButtons);
+  const runAction = (button: ToolbarActionButtonModel) => onRunAction(button.command);
 
   return (
     <div className="flex h-9 min-w-0 flex-1 items-center gap-1 border-b border-zinc-800 bg-zinc-950 px-2 text-zinc-300">
@@ -40,11 +54,18 @@ export function ArkadiaToolbar({ terminalAvailable, onOpenNewTerminal }: Arkadia
         {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
       </button>
 
-      {/* Flexible middle region — Task 3 renders the user's toolbar buttons here. */}
-      <div
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-        data-toolbar-buttons
-      />
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" data-toolbar-buttons>
+        {sortedButtons.length === 0 && (
+          <span className="text-xs text-zinc-600">Aucun bouton configuré</span>
+        )}
+        {sortedButtons.map((button) =>
+          button.kind === "folder" ? (
+            <ToolbarFolderButton key={button.id} button={button} onRunAction={runAction} />
+          ) : (
+            <ToolbarActionButton key={button.id} button={button} onRun={runAction} />
+          ),
+        )}
+      </div>
 
       <button
         onClick={() => void navigate({ to: "/settings" })}

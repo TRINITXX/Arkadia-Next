@@ -2958,6 +2958,38 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
+  /**
+   * Toolbar action buttons always run in a brand-new terminal, never an
+   * existing one, so a running command can never be interrupted by a click.
+   * Reuses `openNewProjectTerminal` — the same allocate-and-open sequence the
+   * toolbar's own "new terminal" button and `runProjectScript` use — then
+   * writes the command the same way `runProjectScript` does. No artificial
+   * delay before the write: `openTerminal`'s promise (awaited inside
+   * `openNewProjectTerminal`) already only resolves once the server confirms
+   * the PTY is open, and `runProjectScript`'s existing new-terminal branch
+   * (above) writes immediately after that same await with no delay — this
+   * mirrors that established, already-working sequence.
+   */
+  const runToolbarAction = useCallback(
+    async (command: string) => {
+      if (!activeThreadId) return;
+      const newTerminalId = await openNewProjectTerminal();
+      if (newTerminalId === null) return;
+      const writeResult = await writeTerminal({
+        environmentId,
+        input: { threadId: activeThreadId, terminalId: newTerminalId, data: `${command}\r` },
+      });
+      if (writeResult._tag === "Failure" && !isAtomCommandInterrupted(writeResult)) {
+        const error = squashAtomCommandFailure(writeResult);
+        setThreadError(
+          activeThreadId,
+          error instanceof Error ? error.message : "Failed to run the toolbar action.",
+        );
+      }
+    },
+    [activeThreadId, environmentId, openNewProjectTerminal, setThreadError, writeTerminal],
+  );
+
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
       if (mode === runtimeMode) return;
@@ -5672,6 +5704,9 @@ function ChatViewContent(props: ChatViewProps) {
             terminalAvailable={activeProject !== null}
             onOpenNewTerminal={() => {
               void openNewProjectTerminal();
+            }}
+            onRunAction={(command) => {
+              void runToolbarAction(command);
             }}
           />
         </header>
