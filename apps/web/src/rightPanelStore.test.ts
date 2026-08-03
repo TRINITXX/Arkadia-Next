@@ -142,6 +142,16 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("keeps notepad as a singleton surface", () => {
+    useRightPanelStore.getState().open(refA, "notepad");
+    useRightPanelStore.getState().open(refA, "notepad");
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "notepad",
+      surfaces: [{ id: "notepad", kind: "notepad" }],
+    });
+  });
+
   it("replaces the standalone explorer with peer file surfaces", () => {
     useRightPanelStore.getState().open(refA, "files");
     useRightPanelStore.getState().openFile(refA, "src/index.ts");

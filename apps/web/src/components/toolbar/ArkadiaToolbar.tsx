@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
+  NotebookPen,
   PanelBottomIcon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -17,9 +18,8 @@ import { sortedToolbarChildren } from "./toolbarFolderNav";
  * The Arkadia toolbar shell that replaces the old chat header. Ported from
  * Arkadia's `src/components/Toolbar.tsx:55-142`, stripped to what this task
  * needs: the sidebar toggle, a flexible middle region rendering the user's
- * customisable button tree, the settings entry point, and the terminal
- * button. The notepad button is Task 5's job and is intentionally absent —
- * an inert placeholder would ship a dead control.
+ * customisable button tree, the notepad button, the settings entry point,
+ * and the terminal button.
  */
 
 interface ArkadiaToolbarProps {
@@ -27,12 +27,15 @@ interface ArkadiaToolbarProps {
   onOpenNewTerminal: () => void;
   /** Runs an action button's command — always in a brand-new terminal. */
   onRunAction: (command: string) => void;
+  /** Opens the notepad right-panel surface and focuses it. */
+  onOpenNotepad: () => void;
 }
 
 export function ArkadiaToolbar({
   terminalAvailable,
   onOpenNewTerminal,
   onRunAction,
+  onOpenNotepad,
 }: ArkadiaToolbarProps) {
   const navigate = useNavigate();
   const { state, toggleSidebar } = useSidebar();
@@ -67,6 +70,15 @@ export function ArkadiaToolbar({
         )}
       </div>
 
+      <button
+        onClick={onOpenNotepad}
+        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 [-webkit-app-region:no-drag]"
+        title="Bloc-notes"
+        aria-label="Bloc-notes"
+        type="button"
+      >
+        <NotebookPen size={14} />
+      </button>
       <button
         onClick={() => void navigate({ to: "/settings" })}
         className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 [-webkit-app-region:no-drag]"
