@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type PointerEventHandler } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight } from "lucide-react";
 import type {
   ToolbarActionButton as ToolbarActionButtonModel,
@@ -26,9 +26,27 @@ import {
 interface ToolbarFolderButtonProps {
   button: ToolbarFolderButtonModel;
   onRunAction: (button: ToolbarActionButtonModel) => void;
+  /**
+   * Which side of the trigger the popover opens on. The top toolbar opens
+   * downward (the default); the composer shortcut row (Task 6) sits at the
+   * bottom of the screen and opens upward instead.
+   */
+  side?: "top" | "bottom";
+  /**
+   * The composer shortcut row (Task 6) sits right above a text field the
+   * user is actively typing in — clicking a button (including a row inside
+   * the open folder) must not steal its focus/caret. Unused by the top
+   * toolbar, which has no field to protect.
+   */
+  preserveFocusOnPointerDown?: boolean;
 }
 
-export function ToolbarFolderButton({ button, onRunAction }: ToolbarFolderButtonProps) {
+export function ToolbarFolderButton({
+  button,
+  onRunAction,
+  side = "bottom",
+  preserveFocusOnPointerDown = false,
+}: ToolbarFolderButtonProps) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<ToolbarFolderButtonModel[]>([]);
   const Icon = getToolbarIcon(button.icon);
@@ -80,6 +98,7 @@ export function ToolbarFolderButton({ button, onRunAction }: ToolbarFolderButton
           open ? "bg-zinc-800" : "bg-zinc-900"
         }`}
         title={`${button.label || "dossier"} (${button.children.length})`}
+        onPointerDown={preserveFocusOnPointerDown ? preventPointerFocus : undefined}
       >
         {Icon && <Icon size={14} />}
         {showLabel && <span>{button.label}</span>}
@@ -87,6 +106,7 @@ export function ToolbarFolderButton({ button, onRunAction }: ToolbarFolderButton
         <ChevronDown size={12} className="text-zinc-500" />
       </PopoverTrigger>
       <PopoverPopup
+        side={side}
         align="start"
         className="w-max min-w-[140px] max-w-[360px] p-1"
         viewportClassName="p-0"
@@ -96,6 +116,7 @@ export function ToolbarFolderButton({ button, onRunAction }: ToolbarFolderButton
           <div className="mb-1 flex items-center gap-2 border-b border-border/70 px-1.5 pb-1">
             <button
               onClick={handleBack}
+              onPointerDown={preserveFocusOnPointerDown ? preventPointerFocus : undefined}
               className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               title={`Revenir à ${view.parentFolder.label || "dossier"}`}
               type="button"
@@ -116,6 +137,7 @@ export function ToolbarFolderButton({ button, onRunAction }: ToolbarFolderButton
               child={child}
               onRunAction={handleActionClick}
               onOpenFolder={handleFolderClick}
+              preserveFocusOnPointerDown={preserveFocusOnPointerDown}
             />
           ))
         )}
@@ -128,18 +150,22 @@ function ToolbarFolderRow({
   child,
   onRunAction,
   onOpenFolder,
+  preserveFocusOnPointerDown,
 }: {
   child: ToolbarButtonModel;
   onRunAction: (button: ToolbarActionButtonModel) => void;
   onOpenFolder: (button: ToolbarFolderButtonModel) => void;
+  preserveFocusOnPointerDown: boolean;
 }) {
   const ChildIcon = getToolbarIcon(child.icon);
+  const onPointerDown = preserveFocusOnPointerDown ? preventPointerFocus : undefined;
 
   if (child.kind === "folder") {
     const label = child.label || "dossier";
     return (
       <button
         onClick={() => onOpenFolder(child)}
+        onPointerDown={onPointerDown}
         className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-foreground hover:bg-accent hover:text-accent-foreground"
         title={`${label} (${child.children.length})`}
         type="button"
@@ -155,6 +181,7 @@ function ToolbarFolderRow({
   return (
     <button
       onClick={() => onRunAction(child)}
+      onPointerDown={onPointerDown}
       className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-foreground hover:bg-accent hover:text-accent-foreground"
       title={child.command || label}
       type="button"
@@ -164,3 +191,7 @@ function ToolbarFolderRow({
     </button>
   );
 }
+
+const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
+  event.preventDefault();
+};

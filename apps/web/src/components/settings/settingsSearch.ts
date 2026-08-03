@@ -2,6 +2,7 @@ export type SettingsPath =
   | "/settings/general"
   | "/settings/appearance"
   | "/settings/toolbar"
+  | "/settings/prompt-buttons"
   | "/settings/keybindings"
   | "/settings/providers"
   | "/settings/source-control"
@@ -24,6 +25,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/toolbar": "Barre d'outils",
+  "/settings/prompt-buttons": "Boutons du prompt",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Providers",
   "/settings/source-control": "Source Control",
@@ -66,6 +68,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "toolbar",
     title: "Barre d'outils",
     to: "/settings/toolbar",
+  },
+  {
+    id: "prompt-buttons",
+    title: "Boutons du prompt",
+    to: "/settings/prompt-buttons",
   },
   {
     id: "project-grouping",

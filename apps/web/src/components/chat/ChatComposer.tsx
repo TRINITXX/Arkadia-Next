@@ -10,6 +10,7 @@ import type {
   ScopedThreadRef,
   ServerProvider,
   ThreadId,
+  ToolbarActionButton as ToolbarActionButtonModel,
   TurnId,
 } from "@t3tools/contracts";
 import {
@@ -66,6 +67,8 @@ import {
 } from "../../promptStashStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
+import { ComposerShortcutBar } from "./ComposerShortcutBar";
+import { insertComposerShortcutCommand } from "./composerShortcutInsertion";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
@@ -1857,6 +1860,67 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       shouldBlurMobileComposerOnSubmit,
     ],
   );
+
+  /**
+   * Composer shortcut row (Task 6): inserts the button's command at the
+   * current caret — never appends at the end — and sends it too when
+   * `submit` is set. The insertion itself is computed by the pure
+   * `insertComposerShortcutCommand` (only to preview what the resulting text
+   * would be for the send-guard below); the actual composer mutation goes
+   * through `applyPromptReplacement`, which already handles the
+   * pending-user-input redirect, trigger detection, and — critically —
+   * restoring focus/caret to the editor afterwards so typing can continue
+   * right where the button inserted its text.
+   */
+  const runComposerShortcutButton = useCallback(
+    (button: ToolbarActionButtonModel) => {
+      if (
+        isConnecting ||
+        isComposerApprovalState ||
+        pendingUserInputs.length > 0 ||
+        projectSelectionRequired
+      ) {
+        return;
+      }
+      const snapshot = readComposerSnapshot();
+      const applied = applyPromptReplacement(snapshot.cursor, snapshot.cursor, button.command);
+      if (!applied || !button.submit) return;
+      const insertion = insertComposerShortcutCommand(
+        snapshot.value,
+        snapshot.cursor,
+        snapshot.cursor,
+        button.command,
+      );
+      const sendState = deriveComposerSendState({
+        prompt: insertion.text,
+        imageCount: composerImages.length,
+        terminalContexts: composerTerminalContexts,
+        elementContextCount:
+          composerElementContexts.length +
+          composerPreviewAnnotations.length +
+          composerReviewComments.length,
+      });
+      // Never fire a send that would carry no content — e.g. a misconfigured
+      // button with a blank command clicked on an otherwise-empty composer.
+      if (!sendState.hasSendableContent) return;
+      submitComposer();
+    },
+    [
+      applyPromptReplacement,
+      composerElementContexts.length,
+      composerImages.length,
+      composerPreviewAnnotations.length,
+      composerReviewComments.length,
+      composerTerminalContexts,
+      isComposerApprovalState,
+      isConnecting,
+      pendingUserInputs.length,
+      projectSelectionRequired,
+      readComposerSnapshot,
+      submitComposer,
+    ],
+  );
+
   const expandMobileComposer = useCallback(() => {
     if (composerBlurFrameRef.current !== null) {
       window.cancelAnimationFrame(composerBlurFrameRef.current);
@@ -3249,6 +3313,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 </div>
               ) : null}
             </div>
+
+            {!isComposerCollapsedMobile &&
+              !isComposerApprovalState &&
+              pendingUserInputs.length === 0 && (
+                <ComposerShortcutBar onRunAction={runComposerShortcutButton} />
+              )}
           </div>
 
           {/* Bottom toolbar */}
