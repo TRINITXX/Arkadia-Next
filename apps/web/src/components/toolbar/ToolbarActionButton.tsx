@@ -1,7 +1,7 @@
-import type { PointerEventHandler } from "react";
 import type { ToolbarActionButton as ToolbarActionButtonModel } from "@t3tools/contracts";
 
 import { getToolbarIcon } from "./toolbarIcons";
+import { preventPointerFocus } from "./toolbarDom";
 
 /**
  * A single root-level (or in-folder) action chip. Ported visually from
@@ -55,7 +55,3 @@ export function ToolbarActionButton({
     </button>
   );
 }
-
-const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
-  event.preventDefault();
-};

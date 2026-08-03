@@ -1,5 +1,5 @@
 import { MAX_TOOLBAR_FOLDER_DEPTH, type ToolbarButton } from "@t3tools/contracts";
-import { findItem, isDescendant, moveItem, subtreeHeight } from "./toolbarTree";
+import { depthOf, findItem, isDescendant, moveItem, subtreeHeight } from "./toolbarTree";
 
 /**
  * Pure resolution of the toolbar editor's three drop targets and the tree
@@ -30,9 +30,37 @@ export function applyToolbarDrop(
   }
 }
 
-/** The `before` drop zone above `itemId` is inert without an active drag, or while dragging that row itself. */
-export function isBeforeDropDisabled(activeDragId: string | null, itemId: string): boolean {
-  return !activeDragId || activeDragId === itemId;
+/**
+ * The `before` drop zone above `itemId` is disabled without an active drag,
+ * while dragging that row itself, or — mirroring the same guards
+ * {@link moveItem} enforces (`toolbarTree.ts:134`, `:143`) — when dropping
+ * there would move a folder into its own descendant or push the dragged
+ * subtree's deepest leaf to or past `MAX_TOOLBAR_FOLDER_DEPTH`. Without this,
+ * `applyToolbarDrop` routes `before` through `moveItem`, which silently
+ * returns the tree unchanged for those two cases: the strip would highlight
+ * and accept the drop, then visibly do nothing.
+ */
+export function isBeforeDropDisabled(input: {
+  buttons: readonly ToolbarButton[];
+  itemId: string;
+  parentId: string | null;
+  activeDragId: string | null;
+}): boolean {
+  const { buttons, itemId, parentId, activeDragId } = input;
+  if (!activeDragId || activeDragId === itemId || activeDragId === parentId) return true;
+
+  const dragged = findItem(buttons, activeDragId);
+  if (!dragged) return true;
+
+  if (parentId !== null) {
+    if (isDescendant(buttons, activeDragId, parentId)) return true;
+    const parentDepth = depthOf(buttons, parentId);
+    if (parentDepth === -1) return true;
+    const newRootDepth = parentDepth + 1;
+    if (newRootDepth + subtreeHeight(dragged.item) >= MAX_TOOLBAR_FOLDER_DEPTH) return true;
+  }
+
+  return false;
 }
 
 /** The trailing root drop zone is inert without an active drag. */

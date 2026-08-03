@@ -1,6 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  closestCenter,
   DndContext,
   DragOverlay,
   PointerSensor,
@@ -37,8 +36,10 @@ import {
 } from "~/components/ui/alert-dialog";
 import { useUpdatePrimarySettings, usePrimarySettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
+import { pointerWithinCollisionDetection } from "~/lib/dndCollision";
 import { IconPicker } from "~/components/toolbar/IconPicker";
 import { getToolbarIcon } from "~/components/toolbar/toolbarIcons";
+import { sortedToolbarChildren } from "~/components/toolbar/toolbarFolderNav";
 import {
   canAddFolder,
   countDescendants,
@@ -112,7 +113,7 @@ export function ToolbarSettingsPanel({
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  const sortedRoot = useMemo(() => [...buttons].sort((a, b) => a.order - b.order), [buttons]);
+  const sortedRoot = useMemo(() => sortedToolbarChildren(buttons), [buttons]);
   const selected = useMemo(
     () => (selectedId ? (findItem(buttons, selectedId)?.item ?? null) : null),
     [buttons, selectedId],
@@ -231,7 +232,7 @@ export function ToolbarSettingsPanel({
         </p>
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={pointerWithinCollisionDetection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onDragCancel={() => setActiveDrag(null)}
@@ -363,7 +364,12 @@ function TreeNode({
   const { setNodeRef: setBeforeRef, isOver: isOverBefore } = useDroppable({
     id: `tb-before:${item.id}`,
     data: beforeTarget,
-    disabled: isBeforeDropDisabled(activeDragId, item.id),
+    disabled: isBeforeDropDisabled({
+      buttons: allButtons,
+      itemId: item.id,
+      parentId,
+      activeDragId,
+    }),
   });
 
   const intoTarget: ToolbarDropTarget = { kind: "into", folderId: item.id };
@@ -441,24 +447,22 @@ function TreeNode({
       </div>
       {isFolder && isExpanded && (
         <ul>
-          {[...item.children]
-            .sort((a, b) => a.order - b.order)
-            .map((child) => (
-              <TreeNode
-                key={child.id}
-                item={child}
-                depth={depth + 1}
-                parentId={item.id}
-                allButtons={allButtons}
-                selectedId={selectedId}
-                expanded={expanded}
-                activeDragId={activeDragId}
-                onSelect={onSelect}
-                onToggleExpand={onToggleExpand}
-                onAddAction={onAddAction}
-                onAddFolder={onAddFolder}
-              />
-            ))}
+          {sortedToolbarChildren(item.children).map((child) => (
+            <TreeNode
+              key={child.id}
+              item={child}
+              depth={depth + 1}
+              parentId={item.id}
+              allButtons={allButtons}
+              selectedId={selectedId}
+              expanded={expanded}
+              activeDragId={activeDragId}
+              onSelect={onSelect}
+              onToggleExpand={onToggleExpand}
+              onAddAction={onAddAction}
+              onAddFolder={onAddFolder}
+            />
+          ))}
           <FolderAddBar
             depth={depth + 1}
             canAddFolderHere={canAddFolder(allButtons, item.id)}
@@ -552,6 +556,11 @@ function EditorPane({
     <div className="flex flex-1 flex-col gap-4 overflow-y-auto rounded-lg border border-border bg-muted/10 p-4">
       {selected.kind === "action" ? (
         <ActionEditorPane
+          // Keyed by id so switching the selected item remounts the editor
+          // instead of reusing it — that's what makes the deferred-commit
+          // unmount flush (see `useDeferredFieldCommit`) fire for the item
+          // being left, rather than leaking its draft into the next one.
+          key={selected.id}
           button={selected}
           onUpdate={(patch) => onUpdate(selected.id, patch)}
           onDelete={() => onRequestDelete(selected)}
@@ -561,6 +570,7 @@ function EditorPane({
         />
       ) : (
         <FolderEditorPane
+          key={selected.id}
           button={selected}
           onUpdate={(patch) => onUpdate(selected.id, patch)}
           onDelete={() => onRequestDelete(selected)}
@@ -568,6 +578,42 @@ function EditorPane({
       )}
     </div>
   );
+}
+
+/**
+ * Local draft for a single text field whose real commit is expensive: it
+ * reindexes and re-encodes the *entire* toolbar tree and persists it (an IPC
+ * round-trip on desktop). Running that on every keystroke — as this panel
+ * used to — made typing a long command one atomic settings write per
+ * character, with writes racing each other with no queue or debounce.
+ *
+ * Commits on blur, and also flushes any pending edit when the field is torn
+ * down. Blur alone is not enough: the tree rows are `div`s, not focusable
+ * elements, so clicking straight from this field to a different tree item
+ * does not blur it first — without the unmount flush, that keystroke would
+ * be silently dropped when `EditorPane` remounts the editor for the new
+ * selection (see the `key={selected.id}` above).
+ */
+function useDeferredFieldCommit(committedValue: string, onCommit: (next: string) => void) {
+  const [draft, setDraft] = useState(committedValue);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
+
+  useEffect(() => {
+    return () => {
+      if (draftRef.current !== committedValue) onCommitRef.current(draftRef.current);
+    };
+    // Re-subscribes only when the persisted value itself changes (i.e. after
+    // a real commit), never on a keystroke — those only touch local `draft`.
+  }, [committedValue]);
+
+  const onBlur = () => {
+    if (draftRef.current !== committedValue) onCommitRef.current(draftRef.current);
+  };
+
+  return { draft, setDraft, onBlur };
 }
 
 function ActionEditorPane({
@@ -587,6 +633,9 @@ function ActionEditorPane({
   commandPlaceholder: string;
   showSubmit: boolean;
 }) {
+  const label = useDeferredFieldCommit(button.label, (next) => onUpdate({ label: next }));
+  const command = useDeferredFieldCommit(button.command, (next) => onUpdate({ command: next }));
+
   return (
     <>
       <span className="w-fit rounded-md bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -597,16 +646,18 @@ function ActionEditorPane({
       </FieldRow>
       <FieldRow label="Libellé">
         <Input
-          value={button.label}
-          onChange={(event) => onUpdate({ label: event.target.value })}
+          value={label.draft}
+          onChange={(event) => label.setDraft(event.target.value)}
+          onBlur={label.onBlur}
           placeholder="Optionnel"
           aria-label="Libellé du bouton"
         />
       </FieldRow>
       <FieldRow label={commandLabel}>
         <Textarea
-          value={button.command}
-          onChange={(event) => onUpdate({ command: event.target.value })}
+          value={command.draft}
+          onChange={(event) => command.setDraft(event.target.value)}
+          onBlur={command.onBlur}
           placeholder={commandPlaceholder}
           rows={5}
           className="font-mono text-xs"
@@ -647,6 +698,7 @@ function FolderEditorPane({
   onDelete: () => void;
 }) {
   const total = countDescendants(button);
+  const label = useDeferredFieldCommit(button.label, (next) => onUpdate({ label: next }));
   return (
     <>
       <div className="flex items-center gap-2">
@@ -662,8 +714,9 @@ function FolderEditorPane({
       </FieldRow>
       <FieldRow label="Libellé">
         <Input
-          value={button.label}
-          onChange={(event) => onUpdate({ label: event.target.value })}
+          value={label.draft}
+          onChange={(event) => label.setDraft(event.target.value)}
+          onBlur={label.onBlur}
           placeholder="Optionnel"
           aria-label="Libellé du dossier"
         />

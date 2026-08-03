@@ -1,4 +1,4 @@
-import { useState, type PointerEventHandler } from "react";
+import { useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight } from "lucide-react";
 import type {
   ToolbarActionButton as ToolbarActionButtonModel,
@@ -8,6 +8,7 @@ import type {
 
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { getToolbarIcon } from "./toolbarIcons";
+import { preventPointerFocus } from "./toolbarDom";
 import {
   popToolbarFolderPath,
   pushToolbarFolderPath,
@@ -201,7 +202,3 @@ function ToolbarFolderRow({
     </button>
   );
 }
-
-const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
-  event.preventDefault();
-};

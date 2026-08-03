@@ -78,15 +78,87 @@ describe("applyToolbarDrop", () => {
 
 describe("isBeforeDropDisabled", () => {
   it("is disabled with no active drag", () => {
-    expect(isBeforeDropDisabled(null, "outer")).toBe(true);
+    const tree = threeLevelFixture();
+    expect(
+      isBeforeDropDisabled({ buttons: tree, itemId: "outer", parentId: null, activeDragId: null }),
+    ).toBe(true);
   });
 
   it("is disabled for a row dragging over itself", () => {
-    expect(isBeforeDropDisabled("outer", "outer")).toBe(true);
+    const tree = threeLevelFixture();
+    expect(
+      isBeforeDropDisabled({
+        buttons: tree,
+        itemId: "outer",
+        parentId: null,
+        activeDragId: "outer",
+      }),
+    ).toBe(true);
   });
 
-  it("is enabled while dragging a different item", () => {
-    expect(isBeforeDropDisabled("root-a", "outer")).toBe(false);
+  it("is enabled while dragging a different item at the same level", () => {
+    const tree = threeLevelFixture();
+    expect(
+      isBeforeDropDisabled({
+        buttons: tree,
+        itemId: "outer",
+        parentId: null,
+        activeDragId: "root-a",
+      }),
+    ).toBe(false);
+  });
+
+  it("is disabled when dropping a folder before an item inside its own descendant (would cycle)", () => {
+    const tree = threeLevelFixture();
+    // "outer" dragged onto the strip above "leaf-1", whose parent "inner" is
+    // a descendant of "outer" — moveItem would refuse this and leave the
+    // tree unchanged.
+    expect(
+      isBeforeDropDisabled({
+        buttons: tree,
+        itemId: "leaf-1",
+        parentId: "inner",
+        activeDragId: "outer",
+      }),
+    ).toBe(true);
+  });
+
+  it("is disabled when dragging a folder onto the strip above one of its direct children", () => {
+    const tree = threeLevelFixture();
+    expect(
+      isBeforeDropDisabled({
+        buttons: tree,
+        itemId: "inner",
+        parentId: "outer",
+        activeDragId: "outer",
+      }),
+    ).toBe(true);
+  });
+
+  it("is disabled when it would push the deepest leaf past MAX_TOOLBAR_FOLDER_DEPTH", () => {
+    const tree = threeLevelFixture();
+    // "outer" (height 2) dropped before "shallow-leaf" (parent "shallow",
+    // depth 0) lands the deepest leaf at 0 + 1 + 2 = 3 == MAX_TOOLBAR_FOLDER_DEPTH.
+    expect(
+      isBeforeDropDisabled({
+        buttons: tree,
+        itemId: "shallow-leaf",
+        parentId: "shallow",
+        activeDragId: "outer",
+      }),
+    ).toBe(true);
+  });
+
+  it("is enabled for a legitimate move that stays within depth and isn't a cycle", () => {
+    const tree = threeLevelFixture();
+    expect(
+      isBeforeDropDisabled({
+        buttons: tree,
+        itemId: "leaf-1",
+        parentId: "inner",
+        activeDragId: "shallow-leaf",
+      }),
+    ).toBe(false);
   });
 });
 

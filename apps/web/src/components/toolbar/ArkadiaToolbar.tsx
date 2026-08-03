@@ -92,7 +92,9 @@ export function ArkadiaToolbar({
         onClick={onOpenNewTerminal}
         disabled={!terminalAvailable}
         className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 [-webkit-app-region:no-drag]"
-        title="Nouveau terminal"
+        title={
+          terminalAvailable ? "Nouveau terminal" : "Sélectionnez un projet pour ouvrir un terminal"
+        }
         aria-label="Nouveau terminal"
         type="button"
       >

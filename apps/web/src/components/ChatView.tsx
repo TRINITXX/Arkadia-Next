@@ -252,8 +252,6 @@ import {
   isBranchMismatchDismissedForSession,
   shouldShowBranchMismatchBanner,
   getStartedThreadModelChangeBlockReason,
-  LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
-  LastInvokedScriptByProjectSchema,
   type LocalDispatchSnapshot,
   PullRequestDialogState,
   cloneComposerImageForRetry,
@@ -268,7 +266,6 @@ import {
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
-import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
@@ -1307,11 +1304,6 @@ function ChatViewContent(props: ChatViewProps) {
     pendingServerThreadStartFromOriginByThreadId,
     setPendingServerThreadStartFromOriginByThreadId,
   ] = useState<Record<string, boolean>>({});
-  const [, setLastInvokedScriptByProjectId] = useLocalStorage(
-    LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
-    {},
-    LastInvokedScriptByProjectSchema,
-  );
   const legendListRef = useRef<LegendListRef | null>(null);
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
   const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
@@ -2782,6 +2774,16 @@ function ChatViewContent(props: ChatViewProps) {
       cwd?: string;
       env?: Record<string, string>;
       worktreePath?: string | null;
+      /**
+       * Reuse this terminal id instead of allocating a fresh one —
+       * `runProjectScript`'s non-`preferNewTerminal` path uses this to open
+       * the already-active thread terminal rather than spawning a new one,
+       * sharing this same allocate/launch-context/open/error sequence
+       * instead of re-inlining it.
+       */
+      terminalId?: string;
+      /** Overrides the generic failure message, e.g. to name the script that failed to launch. */
+      errorMessage?: string;
     }): Promise<string | null> => {
       if (!activeThreadId || !activeProject || !activeThread) return null;
       const targetCwd = options?.cwd ?? gitCwd ?? activeProject.workspaceRoot;
@@ -2805,17 +2807,23 @@ function ChatViewContent(props: ChatViewProps) {
         worktreePath: targetWorktreePath,
         ...(options?.env ? { extraEnv: options.env } : {}),
       });
-      const terminalId = nextTerminalId(allocatableActiveTerminalIds);
+      const isReusingTerminal = options?.terminalId !== undefined;
+      const terminalId = options?.terminalId ?? nextTerminalId(allocatableActiveTerminalIds);
       const openTerminalInput: TerminalOpenInput = {
         threadId: activeThreadId,
         terminalId,
         cwd: targetCwd,
         ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
         env: runtimeEnv,
-        cols: SCRIPT_TERMINAL_COLS,
-        rows: SCRIPT_TERMINAL_ROWS,
+        // Resizing an already-open terminal on reuse would be surprising —
+        // cols/rows only apply when we're actually creating a new PTY.
+        ...(isReusingTerminal ? {} : { cols: SCRIPT_TERMINAL_COLS, rows: SCRIPT_TERMINAL_ROWS }),
       };
-      storeNewTerminal(activeThreadRef, terminalId);
+      if (isReusingTerminal) {
+        storeSetActiveTerminal(activeThreadRef, terminalId);
+      } else {
+        storeNewTerminal(activeThreadRef, terminalId);
+      }
 
       const openResult = await openTerminal({ environmentId, input: openTerminalInput });
       if (openResult._tag === "Failure") {
@@ -2823,7 +2831,9 @@ function ChatViewContent(props: ChatViewProps) {
           const error = squashAtomCommandFailure(openResult);
           setThreadError(
             activeThreadId,
-            error instanceof Error ? error.message : "Failed to open a new terminal.",
+            error instanceof Error
+              ? error.message
+              : (options?.errorMessage ?? "Failed to open a new terminal."),
           );
         }
         return null;
@@ -2841,6 +2851,7 @@ function ChatViewContent(props: ChatViewProps) {
       openTerminal,
       setThreadError,
       storeNewTerminal,
+      storeSetActiveTerminal,
     ],
   );
 
@@ -2852,75 +2863,23 @@ function ChatViewContent(props: ChatViewProps) {
         env?: Record<string, string>;
         worktreePath?: string | null;
         preferNewTerminal?: boolean;
-        rememberAsLastInvoked?: boolean;
       },
     ) => {
       if (!activeThreadId || !activeProject || !activeThread) return;
-      if (options?.rememberAsLastInvoked !== false) {
-        setLastInvokedScriptByProjectId((current) => {
-          if (current[activeProject.id] === script.id) return current;
-          return { ...current, [activeProject.id]: script.id };
-        });
-      }
       const baseTerminalId =
         terminalUiState.activeTerminalId || activeKnownTerminalIds[0] || DEFAULT_THREAD_TERMINAL_ID;
       const isBaseTerminalBusy = runningTerminalIds.includes(baseTerminalId);
       const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
 
-      let targetTerminalId: string;
-      if (wantsNewTerminal) {
-        const newTerminalId = await openNewProjectTerminal({
-          ...(options?.cwd !== undefined ? { cwd: options.cwd } : {}),
-          ...(options?.env !== undefined ? { env: options.env } : {}),
-          ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
-        });
-        if (newTerminalId === null) {
-          return;
-        }
-        targetTerminalId = newTerminalId;
-      } else {
-        const targetCwd = options?.cwd ?? gitCwd ?? activeProject.workspaceRoot;
-        const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
-
-        setTerminalUiLaunchContext({
-          threadId: activeThreadId,
-          cwd: targetCwd,
-          worktreePath: targetWorktreePath,
-        });
-        setTerminalOpen(true);
-        if (!activeThreadRef) {
-          return;
-        }
-        setTerminalFocusRequestId((value) => value + 1);
-
-        const runtimeEnv = projectScriptRuntimeEnv({
-          project: {
-            cwd: activeProject.workspaceRoot,
-          },
-          worktreePath: targetWorktreePath,
-          ...(options?.env ? { extraEnv: options.env } : {}),
-        });
-        const openTerminalInput: TerminalOpenInput = {
-          threadId: activeThreadId,
-          terminalId: baseTerminalId,
-          cwd: targetCwd,
-          ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
-          env: runtimeEnv,
-        };
-        storeSetActiveTerminal(activeThreadRef, baseTerminalId);
-
-        const openResult = await openTerminal({ environmentId, input: openTerminalInput });
-        if (openResult._tag === "Failure") {
-          if (!isAtomCommandInterrupted(openResult)) {
-            const error = squashAtomCommandFailure(openResult);
-            setThreadError(
-              activeThreadId,
-              error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
-            );
-          }
-          return;
-        }
-        targetTerminalId = baseTerminalId;
+      const targetTerminalId = await openNewProjectTerminal({
+        ...(options?.cwd !== undefined ? { cwd: options.cwd } : {}),
+        ...(options?.env !== undefined ? { env: options.env } : {}),
+        ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
+        ...(wantsNewTerminal ? {} : { terminalId: baseTerminalId }),
+        errorMessage: `Failed to run script "${script.name}".`,
+      });
+      if (targetTerminalId === null) {
+        return;
       }
 
       const writeResult = await writeTerminal({
@@ -2943,15 +2902,9 @@ function ChatViewContent(props: ChatViewProps) {
       activeProject,
       activeThread,
       activeThreadId,
-      activeThreadRef,
-      gitCwd,
       openNewProjectTerminal,
-      setTerminalOpen,
       setThreadError,
-      storeSetActiveTerminal,
-      setLastInvokedScriptByProjectId,
       environmentId,
-      openTerminal,
       activeKnownTerminalIds,
       runningTerminalIds,
       terminalUiState.activeTerminalId,

@@ -32,14 +32,13 @@ import {
   type CollisionDetection,
   PointerSensor,
   type DragStartEvent,
-  closestCorners,
-  pointerWithin,
   useSensor,
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { pointerWithinCollisionDetection } from "~/lib/dndCollision";
 import { CSS } from "@dnd-kit/utilities";
 import {
   type ContextMenuItem,
@@ -3196,14 +3195,7 @@ export default function Sidebar() {
       activationConstraint: { distance: 6 },
     }),
   );
-  const projectCollisionDetection = useCallback<CollisionDetection>((args) => {
-    const pointerCollisions = pointerWithin(args);
-    if (pointerCollisions.length > 0) {
-      return pointerCollisions;
-    }
-
-    return closestCorners(args);
-  }, []);
+  const projectCollisionDetection = pointerWithinCollisionDetection;
 
   const handleProjectDragEnd = useCallback(
     (event: DragEndEvent) => {
