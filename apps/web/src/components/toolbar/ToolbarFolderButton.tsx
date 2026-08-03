@@ -39,6 +39,14 @@ interface ToolbarFolderButtonProps {
    * toolbar, which has no field to protect.
    */
   preserveFocusOnPointerDown?: boolean;
+  /**
+   * Greys the trigger out and blocks it from opening — the composer
+   * shortcut row (Task 6) uses this while the composer itself is disabled
+   * (reconnecting, no project chosen yet) so the folder never sits there
+   * looking clickable while silently doing nothing. Unused by the top
+   * toolbar, which has no such disabled state.
+   */
+  disabled?: boolean;
 }
 
 export function ToolbarFolderButton({
@@ -46,6 +54,7 @@ export function ToolbarFolderButton({
   onRunAction,
   side = "bottom",
   preserveFocusOnPointerDown = false,
+  disabled = false,
 }: ToolbarFolderButtonProps) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<ToolbarFolderButtonModel[]>([]);
@@ -94,11 +103,12 @@ export function ToolbarFolderButton({
       }}
     >
       <PopoverTrigger
-        className={`flex h-7 shrink-0 items-center gap-1 rounded border border-zinc-800 px-2 text-xs text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800 [-webkit-app-region:no-drag] ${
+        className={`flex h-7 shrink-0 items-center gap-1 rounded border border-zinc-800 px-2 text-xs text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:bg-zinc-900 [-webkit-app-region:no-drag] ${
           open ? "bg-zinc-800" : "bg-zinc-900"
         }`}
         title={`${button.label || "dossier"} (${button.children.length})`}
         onPointerDown={preserveFocusOnPointerDown ? preventPointerFocus : undefined}
+        disabled={disabled}
       >
         {Icon && <Icon size={14} />}
         {showLabel && <span>{button.label}</span>}

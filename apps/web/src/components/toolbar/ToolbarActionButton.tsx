@@ -20,12 +20,21 @@ interface ToolbarActionButtonProps {
    * focus/caret. Unused by the top toolbar, which has no field to protect.
    */
   preserveFocusOnPointerDown?: boolean;
+  /**
+   * Greys the button out and blocks clicks — the composer shortcut row
+   * (Task 6) uses this while the composer itself is disabled (reconnecting,
+   * no project chosen yet) so it never sits there looking clickable while
+   * silently doing nothing. Unused by the top toolbar, which has no such
+   * disabled state.
+   */
+  disabled?: boolean;
 }
 
 export function ToolbarActionButton({
   button,
   onRun,
   preserveFocusOnPointerDown = false,
+  disabled = false,
 }: ToolbarActionButtonProps) {
   const Icon = getToolbarIcon(button.icon);
   const showLabel = button.label.length > 0;
@@ -35,7 +44,8 @@ export function ToolbarActionButton({
     <button
       onClick={() => onRun(button)}
       onPointerDown={preserveFocusOnPointerDown ? preventPointerFocus : undefined}
-      className="flex h-7 shrink-0 items-center gap-1.5 rounded border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800 [-webkit-app-region:no-drag]"
+      disabled={disabled}
+      className="flex h-7 shrink-0 items-center gap-1.5 rounded border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:bg-zinc-900 [-webkit-app-region:no-drag]"
       title={button.command || button.label}
       type="button"
     >

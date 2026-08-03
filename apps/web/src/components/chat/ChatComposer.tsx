@@ -3317,7 +3317,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             {!isComposerCollapsedMobile &&
               !isComposerApprovalState &&
               pendingUserInputs.length === 0 && (
-                <ComposerShortcutBar onRunAction={runComposerShortcutButton} />
+                <ComposerShortcutBar
+                  onRunAction={runComposerShortcutButton}
+                  disabled={isConnecting || projectSelectionRequired}
+                />
               )}
           </div>
 

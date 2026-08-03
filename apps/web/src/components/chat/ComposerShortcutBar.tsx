@@ -8,6 +8,15 @@ import { sortedToolbarChildren } from "../toolbar/toolbarFolderNav";
 interface ComposerShortcutBarProps {
   /** Inserts the button's command into the composer, sending it too when `submit` is set. */
   onRunAction: (button: ToolbarActionButtonModel) => void;
+  /**
+   * Greys every button out while the composer itself can't take input
+   * (reconnecting, no project chosen yet) — the same condition
+   * `ChatComposer` already uses to disable its text field and send button.
+   * The row stays visible (not hidden) so it doesn't flicker in and out on
+   * every reconnect, it just visibly matches its disabled neighbours instead
+   * of looking clickable while silently doing nothing.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -19,7 +28,7 @@ interface ComposerShortcutBarProps {
  * focus on pointerdown so clicking a shortcut never steals the caret away
  * from the composer the user is typing in.
  */
-export function ComposerShortcutBar({ onRunAction }: ComposerShortcutBarProps) {
+export function ComposerShortcutBar({ onRunAction, disabled = false }: ComposerShortcutBarProps) {
   const promptButtons = useClientSettings((settings) => settings.promptButtons);
   const sortedButtons = sortedToolbarChildren(promptButtons);
 
@@ -38,6 +47,7 @@ export function ComposerShortcutBar({ onRunAction }: ComposerShortcutBarProps) {
             onRunAction={onRunAction}
             side="top"
             preserveFocusOnPointerDown
+            disabled={disabled}
           />
         ) : (
           <ToolbarActionButton
@@ -45,6 +55,7 @@ export function ComposerShortcutBar({ onRunAction }: ComposerShortcutBarProps) {
             button={button}
             onRun={onRunAction}
             preserveFocusOnPointerDown
+            disabled={disabled}
           />
         ),
       )}
