@@ -1,12 +1,20 @@
+import * as NodePath from "node:path";
 import { assert, describe, it } from "vite-plus/test";
 
 import {
+  APP_BUNDLE_ID,
+  APP_DISPLAY_NAME,
   makeDevelopmentLauncherScript,
   resolveElectronBinaryPath,
   resolveMacLauncherPaths,
 } from "./electron-launcher.mjs";
 
 describe("electron development launcher", () => {
+  it("uses the isolated Arkadia application identity", () => {
+    assert.equal(APP_DISPLAY_NAME, "Arkadia");
+    assert.equal(APP_BUNDLE_ID, "com.trinitxx.arkadia");
+  });
+
   it("uses captured values only as fallbacks for a live runner environment", () => {
     const script = makeDevelopmentLauncherScript({
       electronBinaryPath: "/repo/node_modules/electron/Electron",
@@ -58,12 +66,16 @@ describe("electron development launcher", () => {
 
     assert.equal(paths.launcherExecutableName, "T3 Code (Dev) Launcher");
     assert.equal(
-      paths.launcherBinaryPath,
-      "/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/T3 Code (Dev) Launcher",
+      NodePath.normalize(paths.launcherBinaryPath),
+      NodePath.normalize(
+        "/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/T3 Code (Dev) Launcher",
+      ),
     );
     assert.equal(
-      paths.runtimeElectronBinaryPath,
-      "/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/Electron",
+      NodePath.normalize(paths.runtimeElectronBinaryPath),
+      NodePath.normalize(
+        "/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/Electron",
+      ),
     );
 
     const script = makeDevelopmentLauncherScript({
@@ -72,10 +84,7 @@ describe("electron development launcher", () => {
       desktopRoot: "/repo/apps/desktop",
       environment: {},
     });
-    assert.include(
-      script,
-      "exec '/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/Electron'",
-    );
+    assert.include(script, `exec '${paths.runtimeElectronBinaryPath}'`);
     assert.notInclude(script, "node_modules/electron");
   });
 });

@@ -34,6 +34,11 @@ const makeEnvironment = (
 ) =>
   DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(makeEnvironmentLayer(overrides, env)));
 
+const normalizeTestPath = (value: string) => value.replaceAll("\\", "/").replace(/^[A-Za-z]:/, "");
+
+const assertPathEqual = (actual: string, expected: string) =>
+  assert.equal(normalizeTestPath(actual), normalizeTestPath(expected));
+
 describe("DesktopEnvironment", () => {
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {
@@ -51,24 +56,24 @@ describe("DesktopEnvironment", () => {
       );
 
       assert.equal(environment.isDevelopment, true);
-      assert.equal(environment.appDataDirectory, "/Users/alice/Library/Application Support");
-      assert.equal(environment.baseDir, "/tmp/t3");
-      assert.equal(environment.stateDir, "/tmp/t3/userdata");
-      assert.equal(environment.desktopSettingsPath, "/tmp/t3/userdata/desktop-settings.json");
-      assert.equal(environment.clientSettingsPath, "/tmp/t3/userdata/client-settings.json");
-      assert.equal(
+      assertPathEqual(environment.appDataDirectory, "/Users/alice/Library/Application Support");
+      assertPathEqual(environment.baseDir, "/tmp/t3");
+      assertPathEqual(environment.stateDir, "/tmp/t3/userdata");
+      assertPathEqual(environment.desktopSettingsPath, "/tmp/t3/userdata/desktop-settings.json");
+      assertPathEqual(environment.clientSettingsPath, "/tmp/t3/userdata/client-settings.json");
+      assertPathEqual(
         environment.savedEnvironmentRegistryPath,
         "/tmp/t3/userdata/saved-environments.json",
       );
-      assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
-      assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
-      assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
-      assert.equal(environment.rootDir, "/repo");
-      assert.equal(environment.appRoot, "/repo");
-      assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
-      assert.equal(environment.backendCwd, "/repo");
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev");
-      assert.equal(environment.linuxWmClass, "t3code-dev");
+      assertPathEqual(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
+      assertPathEqual(environment.logDir, "/tmp/t3/userdata/logs");
+      assertPathEqual(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
+      assertPathEqual(environment.rootDir, "/repo");
+      assertPathEqual(environment.appRoot, "/repo");
+      assertPathEqual(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
+      assertPathEqual(environment.backendCwd, "/repo");
+      assert.equal(environment.appUserModelId, "com.trinitxx.arkadia.dev");
+      assert.equal(environment.linuxWmClass, "arkadia-dev");
       assert.deepEqual(
         Option.map(environment.devServerUrl, (url) => url.href),
         Option.some("http://localhost:5173/"),
@@ -91,10 +96,10 @@ describe("DesktopEnvironment", () => {
       );
 
       assert.equal(environment.isDevelopment, false);
-      assert.equal(environment.stateDir, "/tmp/t3/userdata");
-      assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
-      assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
-      assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
+      assertPathEqual(environment.stateDir, "/tmp/t3/userdata");
+      assertPathEqual(environment.logDir, "/tmp/t3/userdata/logs");
+      assertPathEqual(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
+      assertPathEqual(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
     }),
   );
 
@@ -106,8 +111,15 @@ describe("DesktopEnvironment", () => {
       );
       const production = yield* makeEnvironment();
 
-      assert.equal(development.stateDir, "/Users/alice/.t3/dev");
-      assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+      assertPathEqual(development.baseDir, "/Users/alice/.arkadia");
+      assertPathEqual(development.stateDir, "/Users/alice/.arkadia/dev");
+      assertPathEqual(production.stateDir, "/Users/alice/.arkadia/userdata");
+      assert.equal(development.userDataDirName, "arkadia-dev");
+      assert.equal(production.userDataDirName, "arkadia");
+      assert.equal(development.appUserModelId, "com.trinitxx.arkadia.dev");
+      assert.equal(production.appUserModelId, "com.trinitxx.arkadia");
+      assert.equal(development.branding.baseName, "Arkadia");
+      assert.equal(development.displayName, "Arkadia (Dev)");
     }),
   );
 
@@ -134,13 +146,13 @@ describe("DesktopEnvironment", () => {
         environment.resolvePickFolderDefaultPath({ initialPath: " " }),
         Option.none(),
       );
-      assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: "~" }),
-        Option.some("/Users/alice"),
+      assertPathEqual(
+        Option.getOrThrow(environment.resolvePickFolderDefaultPath({ initialPath: "~" })),
+        "/Users/alice",
       );
-      assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: "~/project" }),
-        Option.some("/Users/alice/project"),
+      assertPathEqual(
+        Option.getOrThrow(environment.resolvePickFolderDefaultPath({ initialPath: "~/project" })),
+        "/Users/alice/project",
       );
     }),
   );

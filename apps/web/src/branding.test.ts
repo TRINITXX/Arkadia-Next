@@ -20,6 +20,18 @@ afterEach(() => {
 });
 
 describe("branding", () => {
+  it("uses Arkadia as the renderer fallback branding", async () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {},
+    });
+
+    const branding = await import("./branding");
+
+    expect(branding.APP_BASE_NAME).toBe("Arkadia");
+    expect(branding.APP_DISPLAY_NAME).toBe("Arkadia (Dev)");
+  });
+
   it("uses injected desktop branding when available", async () => {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
@@ -49,7 +61,7 @@ describe("branding", () => {
     expect(branding.HOSTED_APP_CHANNEL).toBe("nightly");
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBe("Nightly");
     expect(branding.APP_STAGE_LABEL).toBe("Nightly");
-    expect(branding.APP_DISPLAY_NAME).toBe("T3 Code (Nightly)");
+    expect(branding.APP_DISPLAY_NAME).toBe("Arkadia (Nightly)");
   });
 
   it("does not label the latest hosted app channel", async () => {
@@ -60,7 +72,7 @@ describe("branding", () => {
     expect(branding.HOSTED_APP_CHANNEL).toBe("latest");
     expect(branding.HOSTED_APP_CHANNEL_LABEL).toBe("Latest");
     expect(branding.APP_STAGE_LABEL).toBe("Latest");
-    expect(branding.APP_DISPLAY_NAME).toBe("T3 Code");
+    expect(branding.APP_DISPLAY_NAME).toBe("Arkadia");
   });
 
   it("ignores unknown hosted app channels", async () => {
