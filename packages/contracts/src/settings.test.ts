@@ -37,6 +37,27 @@ describe("Arkadia Claude defaults", () => {
   });
 });
 
+describe("ClientSettings toolbar buttons", () => {
+  it("decodes an empty object to the full default toolbar tree", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.toolbarButtons).toHaveLength(8);
+    expect(decoded.toolbarButtons.filter((b) => b.kind === "folder")).toHaveLength(3);
+    expect(decoded.promptButtons).toHaveLength(4);
+    expect(decoded.promptButtons.every((b) => b.kind === "action")).toBe(true);
+  });
+
+  it("accepts a whole-tree replacement patch", () => {
+    const patch = decodeClientSettingsPatch({
+      toolbarButtons: [
+        { id: "a", kind: "action", label: "a", icon: "play", command: "a", order: 0 },
+      ],
+      promptButtons: [],
+    });
+    expect(patch.toolbarButtons).toHaveLength(1);
+    expect(patch.promptButtons).toHaveLength(0);
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);

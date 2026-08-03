@@ -6,6 +6,7 @@ import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { DEFAULT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import { DEFAULT_PROMPT_BUTTONS, DEFAULT_TOOLBAR_BUTTONS, ToolbarButton } from "./toolbar.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -129,6 +130,12 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarV2ConfiguredByUser: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
+  ),
+  toolbarButtons: Schema.Array(ToolbarButton).pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TOOLBAR_BUTTONS)),
+  ),
+  promptButtons: Schema.Array(ToolbarButton).pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROMPT_BUTTONS)),
   ),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
@@ -714,6 +721,8 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),
   sidebarV2ConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   timestampFormat: Schema.optionalKey(TimestampFormat),
+  toolbarButtons: Schema.optionalKey(Schema.Array(ToolbarButton)),
+  promptButtons: Schema.optionalKey(Schema.Array(ToolbarButton)),
   wordWrap: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;
