@@ -16,6 +16,7 @@ import {
   KeyboardIcon,
   Link2Icon,
   PaletteIcon,
+  PanelTopIcon,
   SearchIcon,
   Settings2Icon,
   XIcon,
@@ -48,6 +49,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
 > = {
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
+  "/settings/toolbar": PanelTopIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/providers": BotIcon,
   "/settings/source-control": GitBranchIcon,
