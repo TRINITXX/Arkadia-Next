@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import ChatView from "../components/ChatView";
+import ArkadiaWorkspaceTabs from "../components/ArkadiaWorkspaceTabs";
 import { threadHasStarted } from "../components/ChatView.logic";
 import {
   DraftId,
@@ -71,7 +72,13 @@ function DraftChatThreadRouteView() {
   }
 
   return (
-    <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
+    <SidebarInset className="h-svh min-h-0 flex-col overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
+      <ArkadiaWorkspaceTabs
+        environmentId={draftSession.environmentId}
+        projectId={draftSession.projectId}
+        activeDraftId={draftId}
+        activeThreadId={null}
+      />
       <ChatView
         draftId={draftId}
         environmentId={draftSession.environmentId}

@@ -11,6 +11,7 @@ import {
   resolveArkadiaThreadIndicator,
   shortenArkadiaProjectPath,
 } from "./arkadiaSidebarModel";
+import * as arkadiaSidebarModel from "./arkadiaSidebarModel";
 
 const NOW = "2026-08-03T10:00:00.000Z";
 
@@ -32,6 +33,7 @@ function thread(
   id: string,
   projectId: string,
   options: {
+    createdAt?: string;
     updatedAt?: string;
     archivedAt?: string | null;
     settledOverride?: "active" | "settled" | null;
@@ -54,7 +56,7 @@ function thread(
     branch: null,
     worktreePath: null,
     latestTurn: null,
-    createdAt: "2026-08-01T10:00:00.000Z",
+    createdAt: options.createdAt ?? "2026-08-01T10:00:00.000Z",
     updatedAt: options.updatedAt ?? "2026-08-02T10:00:00.000Z",
     archivedAt: options.archivedAt ?? null,
     settledOverride: options.settledOverride ?? null,
@@ -152,5 +154,118 @@ describe("Arkadia project presentation", () => {
   it("assigns a stable color from Arkadia's project palette", () => {
     expect(arkadiaProjectColor("C:\\Code\\Arkadia")).toBe(arkadiaProjectColor("C:\\Code\\Arkadia"));
     expect(arkadiaProjectColor("C:\\Code\\Arkadia")).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+});
+
+describe("Arkadia workspace tabs", () => {
+  it("selects a primitive draft id instead of rebuilding a store snapshot", () => {
+    const resolveArkadiaDraftTabId = (
+      arkadiaSidebarModel as typeof arkadiaSidebarModel & {
+        resolveArkadiaDraftTabId: (
+          drafts: Readonly<
+            Record<
+              string,
+              { environmentId: string; projectId: string; promotedTo?: unknown | null }
+            >
+          >,
+          environmentId: string,
+          projectId: string,
+        ) => string | null;
+      }
+    ).resolveArkadiaDraftTabId;
+    expect(typeof resolveArkadiaDraftTabId).toBe("function");
+
+    const drafts = {
+      current: { environmentId: "local", projectId: "alpha", promotedTo: null },
+      other: { environmentId: "local", projectId: "beta", promotedTo: null },
+      promoted: {
+        environmentId: "local",
+        projectId: "alpha",
+        promotedTo: { environmentId: "local", threadId: "server-thread" },
+      },
+    };
+
+    expect(resolveArkadiaDraftTabId(drafts, "local", "alpha")).toBe("current");
+    expect(resolveArkadiaDraftTabId(drafts, "remote", "alpha")).toBeNull();
+  });
+
+  it("shows only active conversations from the current project in creation order", () => {
+    const buildArkadiaWorkspaceTabs = (
+      arkadiaSidebarModel as typeof arkadiaSidebarModel & {
+        buildArkadiaWorkspaceTabs: (input: {
+          threads: ReadonlyArray<EnvironmentThreadShell>;
+          environmentId: string;
+          projectId: string;
+          currentThreadId: string | null;
+          now: string;
+          autoSettleAfterDays: number | null;
+        }) => ReadonlyArray<EnvironmentThreadShell>;
+      }
+    ).buildArkadiaWorkspaceTabs;
+    expect(typeof buildArkadiaWorkspaceTabs).toBe("function");
+
+    const tabs = buildArkadiaWorkspaceTabs({
+      threads: [
+        thread("second", "alpha", {
+          createdAt: "2026-08-02T09:00:00.000Z",
+          updatedAt: "2026-08-03T09:00:00.000Z",
+        }),
+        thread("other-project", "beta"),
+        thread("settled", "alpha", { settledOverride: "settled" }),
+        thread("archived", "alpha", { archivedAt: "2026-08-02T12:00:00.000Z" }),
+        thread("first", "alpha", {
+          createdAt: "2026-08-01T09:00:00.000Z",
+          updatedAt: "2026-08-02T09:00:00.000Z",
+        }),
+      ],
+      environmentId: "local",
+      projectId: "alpha",
+      currentThreadId: "first",
+      now: NOW,
+      autoSettleAfterDays: 3,
+    });
+
+    expect(tabs.map((item) => item.id)).toEqual(["first", "second"]);
+  });
+
+  it("keeps the selected conversation visible while it is being settled", () => {
+    const buildArkadiaWorkspaceTabs = (
+      arkadiaSidebarModel as typeof arkadiaSidebarModel & {
+        buildArkadiaWorkspaceTabs: (input: {
+          threads: ReadonlyArray<EnvironmentThreadShell>;
+          environmentId: string;
+          projectId: string;
+          currentThreadId: string | null;
+          now: string;
+          autoSettleAfterDays: number | null;
+        }) => ReadonlyArray<EnvironmentThreadShell>;
+      }
+    ).buildArkadiaWorkspaceTabs;
+
+    const tabs = buildArkadiaWorkspaceTabs({
+      threads: [thread("selected", "alpha", { settledOverride: "settled" })],
+      environmentId: "local",
+      projectId: "alpha",
+      currentThreadId: "selected",
+      now: NOW,
+      autoSettleAfterDays: 3,
+    });
+
+    expect(tabs.map((item) => item.id)).toEqual(["selected"]);
+  });
+
+  it("selects the adjacent tab after the current tab closes", () => {
+    const resolveArkadiaTabAfterClose = (
+      arkadiaSidebarModel as typeof arkadiaSidebarModel & {
+        resolveArkadiaTabAfterClose: (
+          ids: ReadonlyArray<string>,
+          closingId: string,
+        ) => string | null;
+      }
+    ).resolveArkadiaTabAfterClose;
+    expect(typeof resolveArkadiaTabAfterClose).toBe("function");
+    expect(resolveArkadiaTabAfterClose(["first", "current", "last"], "current")).toBe("last");
+    expect(resolveArkadiaTabAfterClose(["first", "last"], "last")).toBe("first");
+    expect(resolveArkadiaTabAfterClose(["only"], "only")).toBeNull();
   });
 });

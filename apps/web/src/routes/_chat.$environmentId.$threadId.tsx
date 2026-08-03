@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import ChatView from "../components/ChatView";
+import ArkadiaWorkspaceTabs from "../components/ArkadiaWorkspaceTabs";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
 import { resolveThreadRouteRef, resolveThreadRouteRenderState } from "../threadRoutes";
@@ -79,14 +80,21 @@ function ChatThreadRouteView() {
   }
 
   return (
-    <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
-      {renderState === "ready" || (renderState === "loading" && serverThreadShell !== null) ? (
-        <ChatView
-          environmentId={threadRef.environmentId}
-          threadId={threadRef.threadId}
-          routeKind="server"
-          threadSyncPhase={threadSyncPhase}
-        />
+    <SidebarInset className="h-svh min-h-0 flex-col overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
+      {serverThreadShell !== null && (renderState === "ready" || renderState === "loading") ? (
+        <>
+          <ArkadiaWorkspaceTabs
+            environmentId={threadRef.environmentId}
+            projectId={serverThreadShell.projectId}
+            activeThreadId={threadRef.threadId}
+          />
+          <ChatView
+            environmentId={threadRef.environmentId}
+            threadId={threadRef.threadId}
+            routeKind="server"
+            threadSyncPhase={threadSyncPhase}
+          />
+        </>
       ) : null}
     </SidebarInset>
   );

@@ -26,6 +26,64 @@ export interface ArkadiaSidebarGroups {
   readonly inactive: ReadonlyArray<ArkadiaSidebarProjectGroup>;
 }
 
+export function resolveArkadiaDraftTabId(
+  drafts: Readonly<
+    Record<
+      string,
+      {
+        readonly environmentId: string;
+        readonly projectId: string;
+        readonly promotedTo?: unknown | null;
+      }
+    >
+  >,
+  environmentId: string,
+  projectId: string,
+): string | null {
+  for (const [draftId, draft] of Object.entries(drafts)) {
+    if (
+      draft.environmentId === environmentId &&
+      draft.projectId === projectId &&
+      draft.promotedTo == null
+    ) {
+      return draftId;
+    }
+  }
+  return null;
+}
+
+export function buildArkadiaWorkspaceTabs(input: {
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly currentThreadId: string | null;
+  readonly now: string;
+  readonly autoSettleAfterDays: number | null;
+}): ReadonlyArray<EnvironmentThreadShell> {
+  return input.threads
+    .filter(
+      (thread) =>
+        thread.environmentId === input.environmentId &&
+        thread.projectId === input.projectId &&
+        thread.archivedAt === null &&
+        (thread.id === input.currentThreadId ||
+          !effectiveSettled(thread, {
+            now: input.now,
+            autoSettleAfterDays: input.autoSettleAfterDays,
+          })),
+    )
+    .toSorted((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+}
+
+export function resolveArkadiaTabAfterClose(
+  tabIds: ReadonlyArray<string>,
+  closingId: string,
+): string | null {
+  const closingIndex = tabIds.indexOf(closingId);
+  if (closingIndex < 0) return null;
+  return tabIds[closingIndex + 1] ?? tabIds[closingIndex - 1] ?? null;
+}
+
 export type ArkadiaActiveProjectLayout = "empty" | "solo" | "tabs";
 
 export function resolveArkadiaActiveProjectLayout(threadCount: number): ArkadiaActiveProjectLayout {
