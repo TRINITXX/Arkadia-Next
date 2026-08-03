@@ -7,6 +7,6 @@ describe("Arkadia chat sidebar layout", () => {
     expect(appSidebarLayoutSource).toMatch(
       /\{isOnSettings\s*\?\s*<SidebarControl\s*\/>\s*:\s*null\}/,
     );
-    expect(appSidebarLayoutSource).toContain('collapsible={isOnSettings ? "offcanvas" : "none"}');
+    expect(appSidebarLayoutSource).toContain('collapsible="offcanvas"');
   });
 });
