@@ -88,6 +88,38 @@ export function buildArkadiaWorkspaceTabs(input: {
     .toSorted((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
 }
 
+/**
+ * The conversation to fall back on when a non-conversation tab (a project
+ * terminal) is on screen: the one the user was last actually reading, not
+ * merely the one an agent touched most recently. Also keeps that tab in the
+ * bar while the terminal is open, so leaving a settled conversation for a
+ * terminal does not make its tab disappear behind the user.
+ */
+export function resolveArkadiaReturnThreadId(input: {
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly environmentId: string;
+  readonly projectId: string;
+  /** `scopedThreadKey` → ISO timestamp, from the UI state store. */
+  readonly lastVisitedAtByThreadKey: Readonly<Record<string, string>>;
+}): string | null {
+  const ranked = input.threads
+    .filter(
+      (thread) =>
+        thread.environmentId === input.environmentId &&
+        thread.projectId === input.projectId &&
+        thread.archivedAt === null,
+    )
+    .map((thread) => ({
+      id: thread.id,
+      // A conversation never opened in this window has no visit timestamp;
+      // its own update time is the closest stand-in.
+      at:
+        input.lastVisitedAtByThreadKey[`${thread.environmentId}:${thread.id}`] ?? thread.updatedAt,
+    }))
+    .toSorted((left, right) => right.at.localeCompare(left.at));
+  return ranked[0]?.id ?? null;
+}
+
 export function resolveArkadiaTabAfterClose(
   tabIds: ReadonlyArray<string>,
   closingId: string,

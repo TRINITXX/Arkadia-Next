@@ -213,6 +213,7 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { useProjectTerminalsStore } from "./terminal/projectTerminalsStore";
 import { ArkadiaToolbar } from "./toolbar/ArkadiaToolbar";
 import { NotepadPanel } from "./notepad/NotepadPanel";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
@@ -2908,35 +2909,33 @@ function ChatViewContent(props: ChatViewProps) {
   );
 
   /**
-   * Toolbar action buttons always run in a brand-new terminal, never an
-   * existing one, so a running command can never be interrupted by a click.
-   * Reuses `openNewProjectTerminal` — the same allocate-and-open sequence the
-   * toolbar's own "new terminal" button and `runProjectScript` use — then
-   * writes the command the same way `runProjectScript` does. No artificial
-   * delay before the write: `openTerminal`'s promise (awaited inside
-   * `openNewProjectTerminal`) already only resolves once the server confirms
-   * the PTY is open, and `runProjectScript`'s existing new-terminal branch
-   * (above) writes immediately after that same await with no delay — this
-   * mirrors that established, already-working sequence.
+   * Every toolbar gesture that wants a shell — the terminal button and each
+   * action button — opens a brand-new project terminal in its own workspace
+   * tab. A click can therefore never interrupt a running command, and the
+   * shell outlives the conversation it was started from. The command itself
+   * rides along in the tab's state and is written by the tab's own view once
+   * the PTY is actually up, rather than being written here into a terminal
+   * that does not exist yet.
    */
-  const runToolbarAction = useCallback(
-    async (command: string) => {
-      if (!activeThreadId) return;
-      const newTerminalId = await openNewProjectTerminal();
-      if (newTerminalId === null) return;
-      const writeResult = await writeTerminal({
-        environmentId,
-        input: { threadId: activeThreadId, terminalId: newTerminalId, data: `${command}\r` },
+  const openProjectTerminalTab = useProjectTerminalsStore((store) => store.openTerminal);
+  const openToolbarTerminal = useCallback(
+    (command?: string) => {
+      if (!activeProject) return;
+      const projectRef = scopeProjectRef(activeProject.environmentId, activeProject.id);
+      const terminalId = openProjectTerminalTab(
+        projectRef,
+        command ? { pendingCommand: command } : undefined,
+      );
+      void navigate({
+        to: "/$environmentId/project/$projectId/terminal/$terminalId",
+        params: {
+          environmentId: projectRef.environmentId,
+          projectId: projectRef.projectId,
+          terminalId,
+        },
       });
-      if (writeResult._tag === "Failure" && !isAtomCommandInterrupted(writeResult)) {
-        const error = squashAtomCommandFailure(writeResult);
-        setThreadError(
-          activeThreadId,
-          error instanceof Error ? error.message : "Failed to run the toolbar action.",
-        );
-      }
     },
-    [activeThreadId, environmentId, openNewProjectTerminal, setThreadError, writeTerminal],
+    [activeProject, navigate, openProjectTerminalTab],
   );
 
   const handleRuntimeModeChange = useCallback(
@@ -5657,12 +5656,8 @@ function ChatViewContent(props: ChatViewProps) {
         >
           <ArkadiaToolbar
             terminalAvailable={activeProject !== null}
-            onOpenNewTerminal={() => {
-              void openNewProjectTerminal();
-            }}
-            onRunAction={(command) => {
-              void runToolbarAction(command);
-            }}
+            onOpenNewTerminal={() => openToolbarTerminal()}
+            onRunAction={(command) => openToolbarTerminal(command)}
             onOpenNotepad={addNotepadSurface}
           />
         </header>

@@ -242,7 +242,12 @@ interface TerminalViewportProps {
   worktreePath?: string | null;
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
-  onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  /**
+   * Omitted by surfaces with no composer to add to (the project terminal
+   * tab), which drops "Add to chat" from the selection menu rather than
+   * leaving it there doing nothing.
+   */
+  onAddTerminalContext?: (selection: TerminalContextSelection) => void;
   focusRequestId: number;
   autoFocus: boolean;
   resizeEpoch: number;
@@ -302,8 +307,9 @@ export function TerminalViewport({
     onSessionExited();
   });
   const handleAddTerminalContext = useEffectEvent((selection: TerminalContextSelection) => {
-    onAddTerminalContext(selection);
+    onAddTerminalContext?.(selection);
   });
+  const readCanAddTerminalContext = useEffectEvent(() => onAddTerminalContext !== undefined);
   const readTerminalLabel = useEffectEvent(() => terminalLabel);
   const terminalSession = useAttachedTerminalSession({
     environmentId,
@@ -472,7 +478,7 @@ export function TerminalViewport({
         const clicked = await localApi.contextMenu
           .show(
             [
-              { id: "add-to-chat", label: "Add to chat" },
+              ...(readCanAddTerminalContext() ? [{ id: "add-to-chat", label: "Add to chat" }] : []),
               { id: "copy", label: "Copy" },
             ],
             nextAction.position,

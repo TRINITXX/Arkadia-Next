@@ -320,3 +320,58 @@ describe("Arkadia workspace tabs", () => {
     expect(resolveArkadiaTabAfterClose(["only"], "only")).toBeNull();
   });
 });
+
+describe("resolveArkadiaReturnThreadId", () => {
+  const threads = [
+    thread("older-visit", "alpha", { updatedAt: "2026-08-03T09:00:00.000Z" }),
+    thread("recent-visit", "alpha", { updatedAt: "2026-08-01T09:00:00.000Z" }),
+    thread("other-project", "beta"),
+    thread("archived", "alpha", { archivedAt: "2026-08-02T09:00:00.000Z" }),
+  ];
+
+  it("prefers the conversation the user last read over the one an agent touched last", () => {
+    // `older-visit` has the newer update time, but the user was reading
+    // `recent-visit` — that is where closing a terminal must land them.
+    expect(
+      arkadiaSidebarModel.resolveArkadiaReturnThreadId({
+        threads,
+        environmentId: "local",
+        projectId: "alpha",
+        lastVisitedAtByThreadKey: {
+          "local:older-visit": "2026-08-03T08:00:00.000Z",
+          "local:recent-visit": "2026-08-03T12:00:00.000Z",
+        },
+      }),
+    ).toBe("recent-visit");
+  });
+
+  it("falls back to update time for conversations never opened in this window", () => {
+    expect(
+      arkadiaSidebarModel.resolveArkadiaReturnThreadId({
+        threads,
+        environmentId: "local",
+        projectId: "alpha",
+        lastVisitedAtByThreadKey: {},
+      }),
+    ).toBe("older-visit");
+  });
+
+  it("never returns an archived conversation or one from another project", () => {
+    expect(
+      arkadiaSidebarModel.resolveArkadiaReturnThreadId({
+        threads,
+        environmentId: "local",
+        projectId: "gamma",
+        lastVisitedAtByThreadKey: {},
+      }),
+    ).toBeNull();
+    expect(
+      arkadiaSidebarModel.resolveArkadiaReturnThreadId({
+        threads: [thread("archived", "alpha", { archivedAt: "2026-08-02T09:00:00.000Z" })],
+        environmentId: "local",
+        projectId: "alpha",
+        lastVisitedAtByThreadKey: {},
+      }),
+    ).toBeNull();
+  });
+});

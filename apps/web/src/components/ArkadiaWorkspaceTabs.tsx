@@ -1,9 +1,14 @@
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopeProjectRef,
+  scopedProjectKey,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { canSettle, effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
+import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
-import { Plus, X } from "lucide-react";
+import { Plus, SquareTerminalIcon, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
@@ -23,12 +28,37 @@ import {
   resolveArkadiaTabAfterClose,
   resolveArkadiaThreadIndicator,
 } from "./arkadiaSidebarModel";
+import { selectProjectTerminals, useProjectTerminalsStore } from "./terminal/projectTerminalsStore";
+import { useCloseProjectTerminal } from "./terminal/useCloseProjectTerminal";
 
 interface ArkadiaWorkspaceTabsProps {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly activeThreadId: ThreadId | null;
   readonly activeDraftId?: DraftId | null;
+  /** Set when a project terminal tab — not a conversation — is on screen. */
+  readonly activeTerminalId?: string | null;
+  /**
+   * Conversation to keep in the bar even if it is settled or was closed —
+   * the one the user left behind to open a terminal. Without it, opening a
+   * terminal from a settled conversation would make its tab vanish.
+   */
+  readonly keepVisibleThreadId?: ThreadId | null;
+}
+
+/** One look for every tab in the bar, whatever it holds. */
+function workspaceTabClassName(active: boolean): string {
+  return `group flex min-w-[120px] max-w-[220px] cursor-pointer items-center gap-2 border-r border-zinc-800 px-3 text-xs [-webkit-app-region:no-drag] ${
+    active
+      ? "bg-zinc-900 text-zinc-100"
+      : "bg-zinc-950 text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-200"
+  }`;
+}
+
+function workspaceTabCloseClassName(active: boolean): string {
+  return `flex size-4 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100 ${
+    active ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+  }`;
 }
 
 function StatusDot({ thread }: { readonly thread: EnvironmentThreadShell }) {
@@ -54,6 +84,8 @@ export default function ArkadiaWorkspaceTabs({
   projectId,
   activeThreadId,
   activeDraftId = null,
+  activeTerminalId = null,
+  keepVisibleThreadId = null,
 }: ArkadiaWorkspaceTabsProps) {
   const threads = useThreadShells();
   const nowMinute = useNowMinute();
@@ -95,7 +127,7 @@ export default function ArkadiaWorkspaceTabs({
         threads,
         environmentId,
         projectId,
-        currentThreadId: activeThreadId,
+        currentThreadId: activeThreadId ?? keepVisibleThreadId,
         closedTabKeys,
         now: `${nowMinute}:00.000Z`,
         autoSettleAfterDays,
@@ -103,6 +135,7 @@ export default function ArkadiaWorkspaceTabs({
     [
       activeThreadId,
       autoSettleAfterDays,
+      keepVisibleThreadId,
       closedTabKeys,
       environmentId,
       nowMinute,
@@ -216,6 +249,60 @@ export default function ArkadiaWorkspaceTabs({
     ],
   );
 
+  const projectTerminals = useProjectTerminalsStore((store) =>
+    selectProjectTerminals(store.terminalsByProjectKey, scopedProjectKey(projectRef)),
+  );
+  const closeProjectTerminal = useCloseProjectTerminal(projectRef);
+
+  const openTerminalTab = useCallback(
+    (terminalId: string) => {
+      void router.navigate({
+        to: "/$environmentId/project/$projectId/terminal/$terminalId",
+        params: { environmentId, projectId, terminalId },
+      });
+    },
+    [environmentId, projectId, router],
+  );
+
+  // Unlike a conversation, a closed terminal is gone for good — so leaving the
+  // user on its now-empty tab is not an option. Fall back to the next
+  // terminal, then to the conversations, and only then to a fresh draft.
+  const closeTerminalTab = useCallback(
+    (terminalId: string) => {
+      const remaining = projectTerminals.filter((tab) => tab.terminalId !== terminalId);
+      closeProjectTerminal(terminalId);
+      if (activeTerminalId !== terminalId) return;
+
+      const nextTerminal = remaining[remaining.length - 1];
+      if (nextTerminal) {
+        openTerminalTab(nextTerminal.terminalId);
+        return;
+      }
+      const fallbackThread = tabs[tabs.length - 1];
+      if (fallbackThread) {
+        openThread(fallbackThread);
+        return;
+      }
+      if (visibleDraft) {
+        openDraft();
+        return;
+      }
+      void handleNewThread(projectRef, { replace: true });
+    },
+    [
+      activeTerminalId,
+      closeProjectTerminal,
+      handleNewThread,
+      openDraft,
+      openTerminalTab,
+      openThread,
+      projectRef,
+      projectTerminals,
+      tabs,
+      visibleDraft,
+    ],
+  );
+
   // A closed tab whose conversation is still classified active would resurface
   // in the sidebar's Active list. Settle it as soon as the shell says it is
   // quiet — driven by shell updates, never by a timer.
@@ -253,15 +340,12 @@ export default function ArkadiaWorkspaceTabs({
     >
       <div className="scrollbar-none flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden">
         {tabs.map((thread) => {
-          const active = thread.id === activeThreadId && activeDraftId === null;
+          const active =
+            thread.id === activeThreadId && activeDraftId === null && activeTerminalId === null;
           return (
             <div
               key={`${thread.environmentId}:${thread.id}`}
-              className={`group flex min-w-[120px] max-w-[220px] cursor-pointer items-center gap-2 border-r border-zinc-800 px-3 text-xs [-webkit-app-region:no-drag] ${
-                active
-                  ? "bg-zinc-900 text-zinc-100"
-                  : "bg-zinc-950 text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-200"
-              }`}
+              className={workspaceTabClassName(active)}
               onAuxClick={(event) => {
                 if (event.button !== 1) return;
                 event.preventDefault();
@@ -275,11 +359,7 @@ export default function ArkadiaWorkspaceTabs({
               <button
                 type="button"
                 aria-label={`Fermer ${thread.title}`}
-                className={`flex size-4 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100 ${
-                  active
-                    ? "opacity-100"
-                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                }`}
+                className={workspaceTabCloseClassName(active)}
                 onClick={(event) => {
                   event.stopPropagation();
                   void closeThread(thread);
@@ -293,11 +373,7 @@ export default function ArkadiaWorkspaceTabs({
 
         {visibleDraft ? (
           <div
-            className={`group flex min-w-[120px] max-w-[220px] cursor-pointer items-center gap-2 border-r border-zinc-800 px-3 text-xs [-webkit-app-region:no-drag] ${
-              activeDraftId === visibleDraft.draftId
-                ? "bg-zinc-900 text-zinc-100"
-                : "bg-zinc-950 text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-200"
-            }`}
+            className={workspaceTabClassName(activeDraftId === visibleDraft.draftId)}
             onAuxClick={(event) => {
               if (event.button !== 1) return;
               event.preventDefault();
@@ -311,11 +387,7 @@ export default function ArkadiaWorkspaceTabs({
             <button
               type="button"
               aria-label="Fermer la nouvelle conversation"
-              className={`flex size-4 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-700 hover:text-zinc-100 ${
-                activeDraftId === visibleDraft.draftId
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-              }`}
+              className={workspaceTabCloseClassName(activeDraftId === visibleDraft.draftId)}
               onClick={(event) => {
                 event.stopPropagation();
                 closeDraft();
@@ -325,6 +397,41 @@ export default function ArkadiaWorkspaceTabs({
             </button>
           </div>
         ) : null}
+
+        {/* Terminals come after the conversations and stay put: they belong to
+            the project, so switching or closing a conversation leaves them
+            exactly where they were. */}
+        {projectTerminals.map((terminal) => {
+          const active = activeTerminalId === terminal.terminalId;
+          const label = getTerminalLabel(terminal.terminalId);
+          return (
+            <div
+              key={terminal.terminalId}
+              className={workspaceTabClassName(active)}
+              onAuxClick={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
+                closeTerminalTab(terminal.terminalId);
+              }}
+              onClick={() => openTerminalTab(terminal.terminalId)}
+              title={label}
+            >
+              <SquareTerminalIcon size={12} className="shrink-0 text-zinc-500" />
+              <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+              <button
+                type="button"
+                aria-label={`Fermer ${label}`}
+                className={workspaceTabCloseClassName(active)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  closeTerminalTab(terminal.terminalId);
+                }}
+              >
+                <X size={12} strokeWidth={2} />
+              </button>
+            </div>
+          );
+        })}
 
         {/* Never disabled: a project keeps a single pending draft, so the plus
             either opens a brand new conversation or jumps to the one already
