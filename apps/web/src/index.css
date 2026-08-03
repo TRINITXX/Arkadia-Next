@@ -844,6 +844,18 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   padding-right: max(env(safe-area-inset-right), 0px);
 }
 
+/* Scrolling chrome (tab strips, toolbars) that must never show a scrollbar:
+   the strip is scrolled by wheel/trackpad and by its own overflow affordance,
+   and a scrollbar rail would eat several pixels out of an already short row.
+   Tailwind ships no such utility, so callers using `scrollbar-none` silently
+   got nothing until this existed. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Grain texture for chrome surfaces that float above the body (see the
    --surface-grain note). Layered over the element's background-color, so it
    composes with bg-* utilities. */
@@ -1077,9 +1089,12 @@ code {
   -webkit-app-region: no-drag;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling. `width` only governs vertical bars — without `height`,
+   horizontal scrollbars kept the platform default (~15px) and read as a thick
+   grey slab under any horizontally scrolling row. */
 ::-webkit-scrollbar {
   width: var(--app-scrollbar-width);
+  height: var(--app-scrollbar-width);
 }
 
 ::-webkit-scrollbar-track {

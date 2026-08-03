@@ -58,15 +58,15 @@ function readInitialThreadSidebarWidth(): number {
   }
 }
 
-function SidebarControl() {
+/**
+ * Binds the `sidebar.toggle` shortcut. Mounted unconditionally, unlike the
+ * floating {@link SidebarControl} button: chat routes carry their toggle in
+ * the Arkadia toolbar instead, and the keyboard shortcut has to keep working
+ * on every route regardless of which button is on screen.
+ */
+function SidebarToggleShortcut() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { toggleSidebar } = useSidebar();
-  const isSidebarVisible = useSidebarVisibility();
-  const environmentIdentificationMode = useEnvironmentIdentificationMode();
-  const stageBackdropVariant = useSidebarStageBackdropVariant(
-    environmentIdentificationMode === "artwork",
-  );
-  const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -88,6 +88,18 @@ function SidebarControl() {
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [keybindings, toggleSidebar]);
+
+  return null;
+}
+
+function SidebarControl() {
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const isSidebarVisible = useSidebarVisibility();
+  const environmentIdentificationMode = useEnvironmentIdentificationMode();
+  const stageBackdropVariant = useSidebarStageBackdropVariant(
+    environmentIdentificationMode === "artwork",
+  );
+  const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
 
   return (
     <div
@@ -208,6 +220,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         {isOnSettings ? <SidebarRail /> : null}
       </Sidebar>
       {children}
+      <SidebarToggleShortcut />
       {isOnSettings ? <SidebarControl /> : null}
     </SidebarProvider>
   );

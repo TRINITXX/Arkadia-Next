@@ -1,25 +1,31 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  NotebookPen,
-  PanelBottomIcon,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings as SettingsIcon,
+  NotebookPenIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  SettingsIcon,
+  SquareTerminalIcon,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ToolbarActionButton as ToolbarActionButtonModel } from "@t3tools/contracts";
 
+import { Button } from "~/components/ui/button";
+import { Separator } from "~/components/ui/separator";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useSidebar } from "~/components/ui/sidebar";
 import { useClientSettings } from "~/hooks/useSettings";
-import { ToolbarActionButton } from "./ToolbarActionButton";
-import { ToolbarFolderButton } from "./ToolbarFolderButton";
+import { shortcutLabelForCommand } from "~/keybindings";
+import { primaryServerKeybindingsAtom } from "~/state/server";
+import { ToolbarButtonStrip } from "./ToolbarButtonStrip";
 import { sortedToolbarChildren } from "./toolbarFolderNav";
 
 /**
- * The Arkadia toolbar shell that replaces the old chat header. Ported from
- * Arkadia's `src/components/Toolbar.tsx:55-142`, stripped to what this task
- * needs: the sidebar toggle, a flexible middle region rendering the user's
- * customisable button tree, the notepad button, the settings entry point,
- * and the terminal button.
+ * The Arkadia toolbar shell that replaced the old chat header: the sidebar
+ * toggle, the user's customisable button tree, then the fixed surfaces
+ * (notepad, settings, terminal). Built out of the app's own `Button`,
+ * `Separator` and `Tooltip` so it reads as one chrome strip with the tab bar
+ * above it rather than a bolted-on row.
  */
 
 interface ArkadiaToolbarProps {
@@ -43,63 +49,87 @@ export function ArkadiaToolbar({
   const toolbarButtons = useClientSettings((s) => s.toolbarButtons);
   const sortedButtons = sortedToolbarChildren(toolbarButtons);
   const runAction = (button: ToolbarActionButtonModel) => onRunAction(button.command);
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const sidebarShortcut = shortcutLabelForCommand(keybindings, "sidebar.toggle");
+  const sidebarLabel = sidebarOpen ? "Fermer la barre latérale" : "Ouvrir la barre latérale";
 
   return (
-    <div className="flex h-9 min-w-0 flex-1 items-center gap-1 border-b border-zinc-800 bg-zinc-950 px-2 text-zinc-300">
-      <button
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <ToolbarIconButton
+        label={sidebarLabel}
+        tooltip={sidebarShortcut ? `${sidebarLabel} (${sidebarShortcut})` : sidebarLabel}
         onClick={toggleSidebar}
-        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 [-webkit-app-region:no-drag]"
-        title={sidebarOpen ? "Fermer la barre latérale" : "Ouvrir la barre latérale"}
-        aria-label={sidebarOpen ? "Fermer la barre latérale" : "Ouvrir la barre latérale"}
         aria-pressed={sidebarOpen}
-        type="button"
       >
-        {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
-      </button>
+        {sidebarOpen ? <PanelLeftCloseIcon /> : <PanelLeftOpenIcon />}
+      </ToolbarIconButton>
 
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" data-toolbar-buttons>
-        {sortedButtons.length === 0 && (
-          <span className="text-xs text-zinc-600">Aucun bouton configuré</span>
-        )}
-        {sortedButtons.map((button) =>
-          button.kind === "folder" ? (
-            <ToolbarFolderButton key={button.id} button={button} onRunAction={runAction} />
-          ) : (
-            <ToolbarActionButton key={button.id} button={button} onRun={runAction} />
-          ),
-        )}
+      <Separator orientation="vertical" className="mx-1 h-4" />
+
+      <ToolbarButtonStrip buttons={sortedButtons} onRunAction={runAction} />
+
+      <Separator orientation="vertical" className="mx-1 h-4" />
+
+      <div className="flex shrink-0 items-center gap-0.5">
+        <ToolbarIconButton label="Bloc-notes" onClick={onOpenNotepad}>
+          <NotebookPenIcon />
+        </ToolbarIconButton>
+        <ToolbarIconButton label="Réglages" onClick={() => void navigate({ to: "/settings" })}>
+          <SettingsIcon />
+        </ToolbarIconButton>
+        <ToolbarIconButton
+          label={
+            terminalAvailable
+              ? "Nouveau terminal"
+              : "Sélectionnez un projet pour ouvrir un terminal"
+          }
+          onClick={onOpenNewTerminal}
+          disabled={!terminalAvailable}
+        >
+          <SquareTerminalIcon />
+        </ToolbarIconButton>
       </div>
-
-      <button
-        onClick={onOpenNotepad}
-        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 [-webkit-app-region:no-drag]"
-        title="Bloc-notes"
-        aria-label="Bloc-notes"
-        type="button"
-      >
-        <NotebookPen size={14} />
-      </button>
-      <button
-        onClick={() => void navigate({ to: "/settings" })}
-        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 [-webkit-app-region:no-drag]"
-        title="Réglages"
-        aria-label="Réglages"
-        type="button"
-      >
-        <SettingsIcon size={14} />
-      </button>
-      <button
-        onClick={onOpenNewTerminal}
-        disabled={!terminalAvailable}
-        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 [-webkit-app-region:no-drag]"
-        title={
-          terminalAvailable ? "Nouveau terminal" : "Sélectionnez un projet pour ouvrir un terminal"
-        }
-        aria-label="Nouveau terminal"
-        type="button"
-      >
-        <PanelBottomIcon size={14} />
-      </button>
     </div>
+  );
+}
+
+interface ToolbarIconButtonProps {
+  /** The accessible name, and the tooltip text unless `tooltip` overrides it. */
+  label: string;
+  /** Richer tooltip text (e.g. label plus keyboard shortcut). */
+  tooltip?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  "aria-pressed"?: boolean;
+  children: ReactNode;
+}
+
+function ToolbarIconButton({
+  label,
+  tooltip,
+  onClick,
+  disabled = false,
+  children,
+  ...ariaProps
+}: ToolbarIconButtonProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            className="shrink-0 [-webkit-app-region:no-drag]"
+            onClick={onClick}
+            disabled={disabled}
+            aria-label={label}
+            {...ariaProps}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">{tooltip ?? label}</TooltipPopup>
+    </Tooltip>
   );
 }

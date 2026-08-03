@@ -1,15 +1,19 @@
 import type { ToolbarActionButton as ToolbarActionButtonModel } from "@t3tools/contracts";
 
+import { Button } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
 import { getToolbarIcon } from "./toolbarIcons";
 import { preventPointerFocus } from "./toolbarDom";
 
 /**
- * A single root-level (or in-folder) action chip. Ported visually from
- * Arkadia's `ActionToolbarButton` (`src/components/Toolbar.tsx:146-178`): an
- * icon slot that silently disappears for an unknown slug
- * ({@link getToolbarIcon} returns `null` instead of throwing), and a label
- * that falls back to the raw command — or a placeholder — so the button is
- * never a blank, dead control.
+ * A single root-level (or in-folder) action chip. Built on the app's own
+ * `Button` (`size="xs"`, `variant="outline"`) rather than hand-rolled classes,
+ * so it carries the same height, radius, border, focus ring and disabled
+ * treatment as every other control in the chrome. Keeps Arkadia's fallback
+ * ladder: an icon slot that silently disappears for an unknown slug
+ * ({@link getToolbarIcon} returns `null` instead of throwing), and a label that
+ * falls back to the raw command — or a placeholder — so the button is never a
+ * blank, dead control.
  */
 interface ToolbarActionButtonProps {
   button: ToolbarActionButtonModel;
@@ -28,6 +32,7 @@ interface ToolbarActionButtonProps {
    * disabled state.
    */
   disabled?: boolean;
+  className?: string;
 }
 
 export function ToolbarActionButton({
@@ -35,23 +40,27 @@ export function ToolbarActionButton({
   onRun,
   preserveFocusOnPointerDown = false,
   disabled = false,
+  className,
 }: ToolbarActionButtonProps) {
   const Icon = getToolbarIcon(button.icon);
   const showLabel = button.label.length > 0;
   const fallbackText = button.command.length > 0 ? button.command : "sans nom";
 
   return (
-    <button
+    <Button
+      size="xs"
+      variant="outline"
       onClick={() => onRun(button)}
       onPointerDown={preserveFocusOnPointerDown ? preventPointerFocus : undefined}
       disabled={disabled}
-      className="flex h-7 shrink-0 items-center gap-1.5 rounded border border-zinc-800 bg-zinc-900 px-2 text-xs text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:bg-zinc-900 [-webkit-app-region:no-drag]"
+      className={cn("max-w-56 [-webkit-app-region:no-drag]", className)}
       title={button.command || button.label}
-      type="button"
     >
-      {Icon && <Icon size={14} />}
-      {showLabel && <span>{button.label}</span>}
-      {!Icon && !showLabel && <span className="text-zinc-500">{fallbackText}</span>}
-    </button>
+      {Icon && <Icon />}
+      {showLabel && <span className="truncate">{button.label}</span>}
+      {!Icon && !showLabel && (
+        <span className="truncate text-muted-foreground">{fallbackText}</span>
+      )}
+    </Button>
   );
 }

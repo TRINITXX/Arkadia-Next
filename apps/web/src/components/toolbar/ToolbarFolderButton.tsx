@@ -6,7 +6,9 @@ import type {
   ToolbarFolderButton as ToolbarFolderButtonModel,
 } from "@t3tools/contracts";
 
+import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
+import { cn } from "~/lib/utils";
 import { getToolbarIcon } from "./toolbarIcons";
 import { preventPointerFocus } from "./toolbarDom";
 import {
@@ -48,6 +50,7 @@ interface ToolbarFolderButtonProps {
    * toolbar, which has no such disabled state.
    */
   disabled?: boolean;
+  className?: string;
 }
 
 export function ToolbarFolderButton({
@@ -56,6 +59,7 @@ export function ToolbarFolderButton({
   side = "bottom",
   preserveFocusOnPointerDown = false,
   disabled = false,
+  className,
 }: ToolbarFolderButtonProps) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<ToolbarFolderButtonModel[]>([]);
@@ -104,43 +108,47 @@ export function ToolbarFolderButton({
       }}
     >
       <PopoverTrigger
-        className={`flex h-7 shrink-0 items-center gap-1 rounded border border-zinc-800 px-2 text-xs text-zinc-200 hover:border-zinc-700 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-zinc-800 disabled:hover:bg-zinc-900 [-webkit-app-region:no-drag] ${
-          open ? "bg-zinc-800" : "bg-zinc-900"
-        }`}
+        render={
+          <Button
+            size="xs"
+            variant="outline"
+            className={cn("max-w-56 [-webkit-app-region:no-drag]", className)}
+            disabled={disabled}
+          />
+        }
         title={`${button.label || "dossier"} (${button.children.length})`}
         onPointerDown={preserveFocusOnPointerDown ? preventPointerFocus : undefined}
-        disabled={disabled}
       >
-        {Icon && <Icon size={14} />}
-        {showLabel && <span>{button.label}</span>}
-        {!Icon && !showLabel && <span className="text-zinc-500">dossier</span>}
-        <ChevronDown size={12} className="text-zinc-500" />
+        {Icon && <Icon />}
+        {showLabel && <span className="truncate">{button.label}</span>}
+        {!Icon && !showLabel && <span className="truncate text-muted-foreground">dossier</span>}
+        <ChevronDown className="-me-0.5 size-3! opacity-70" />
       </PopoverTrigger>
       <PopoverPopup
         side={side}
         align="start"
-        className="w-max min-w-[140px] max-w-[360px] p-1"
+        className="w-max min-w-40 max-w-90 rounded-lg p-1 text-sm"
         viewportClassName="p-0"
         tooltipStyle
       >
         {view.parentFolder && (
-          <div className="mb-1 flex items-center gap-2 border-b border-border/70 px-1.5 pb-1">
+          <div className="mb-1 flex items-center gap-1.5 border-b border-border/70 px-1 pb-1">
             <button
               onClick={handleBack}
               onPointerDown={preserveFocusOnPointerDown ? preventPointerFocus : undefined}
-              className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               title={`Revenir à ${view.parentFolder.label || "dossier"}`}
               type="button"
             >
-              <ArrowLeft size={12} />
+              <ArrowLeft className="size-3.5" />
             </button>
-            <span className="truncate text-[11px] text-muted-foreground">
+            <span className="truncate font-medium text-muted-foreground text-xs">
               {view.currentFolder.label || "dossier"}
             </span>
           </div>
         )}
         {view.children.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">Dossier vide</div>
+          <div className="px-2 py-1.5 text-muted-foreground text-sm">Dossier vide</div>
         ) : (
           view.children.map((child) => (
             <ToolbarFolderRow
@@ -156,6 +164,10 @@ export function ToolbarFolderButton({
     </Popover>
   );
 }
+
+/** Matches `MenuItem`'s metrics so a folder popover reads as a real menu. */
+const TOOLBAR_FOLDER_ROW_CLASS =
+  "flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-left text-base text-foreground hover:bg-accent hover:text-accent-foreground sm:min-h-7 sm:text-sm";
 
 function ToolbarFolderRow({
   child,
@@ -177,13 +189,13 @@ function ToolbarFolderRow({
       <button
         onClick={() => onOpenFolder(child)}
         onPointerDown={onPointerDown}
-        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-foreground hover:bg-accent hover:text-accent-foreground"
+        className={TOOLBAR_FOLDER_ROW_CLASS}
         title={`${label} (${child.children.length})`}
         type="button"
       >
-        {ChildIcon && <ChildIcon size={14} className="shrink-0" />}
+        {ChildIcon && <ChildIcon className="size-4 shrink-0 text-muted-foreground" />}
         <span className="flex-1 truncate">{label}</span>
-        <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+        <ChevronRight className="-me-0.5 size-3.5 shrink-0 text-muted-foreground" />
       </button>
     );
   }
@@ -193,11 +205,11 @@ function ToolbarFolderRow({
     <button
       onClick={() => onRunAction(child)}
       onPointerDown={onPointerDown}
-      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs text-foreground hover:bg-accent hover:text-accent-foreground"
+      className={TOOLBAR_FOLDER_ROW_CLASS}
       title={child.command || label}
       type="button"
     >
-      {ChildIcon && <ChildIcon size={14} className="shrink-0" />}
+      {ChildIcon && <ChildIcon className="size-4 shrink-0 text-muted-foreground" />}
       <span className="truncate">{label}</span>
     </button>
   );
