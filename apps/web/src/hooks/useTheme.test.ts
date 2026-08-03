@@ -27,6 +27,17 @@ afterEach(() => {
 });
 
 describe("theme failure handling", () => {
+  it("defaults Arkadia to dark when no preference has been stored", async () => {
+    vi.stubGlobal("window", {
+      localStorage: createStorage(),
+      matchMedia: () => ({ matches: false }),
+    });
+
+    const { readThemePreference } = await import("./useTheme");
+
+    expect(readThemePreference()).toBe("dark");
+  });
+
   it("preserves exact storage causes and operation context", async () => {
     const readCause = new Error("storage read blocked");
     const writeCause = new Error("storage quota exceeded");

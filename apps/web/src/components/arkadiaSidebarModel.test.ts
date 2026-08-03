@@ -7,6 +7,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   arkadiaProjectColor,
   buildArkadiaSidebarGroups,
+  resolveArkadiaActiveProjectLayout,
+  resolveArkadiaThreadIndicator,
   shortenArkadiaProjectPath,
 } from "./arkadiaSidebarModel";
 
@@ -33,6 +35,9 @@ function thread(
     updatedAt?: string;
     archivedAt?: string | null;
     settledOverride?: "active" | "settled" | null;
+    instanceId?: string;
+    sessionStatus?: "starting" | "running" | "ready" | "error";
+    pendingUserInput?: boolean;
   } = {},
 ): EnvironmentThreadShell {
   return {
@@ -40,7 +45,10 @@ function thread(
     id,
     projectId,
     title: id,
-    modelSelection: { instanceId: "claudeAgent", model: "claude-opus-4-6" },
+    modelSelection: {
+      instanceId: options.instanceId ?? "claudeAgent",
+      model: "claude-opus-4-6",
+    },
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: null,
@@ -54,10 +62,15 @@ function thread(
     snoozedUntil: null,
     snoozedAt: null,
     titleRegeneration: null,
-    session: null,
+    session: options.sessionStatus
+      ? {
+          status: options.sessionStatus,
+          updatedAt: options.updatedAt ?? "2026-08-02T10:00:00.000Z",
+        }
+      : null,
     latestUserMessageAt: "2026-08-02T10:00:00.000Z",
     hasPendingApprovals: false,
-    hasPendingUserInput: false,
+    hasPendingUserInput: options.pendingUserInput ?? false,
     hasActionableProposedPlan: false,
   } as unknown as EnvironmentThreadShell;
 }
@@ -107,6 +120,28 @@ describe("buildArkadiaSidebarGroups", () => {
 });
 
 describe("Arkadia project presentation", () => {
+  it("uses Arcadia green for waiting and amber for working across agents", () => {
+    expect(
+      resolveArkadiaThreadIndicator(thread("waiting", "alpha", { pendingUserInput: true })),
+    ).toMatchObject({ tone: "waiting", color: "#10b981", label: "Claude attend une réponse" });
+    expect(
+      resolveArkadiaThreadIndicator(thread("working", "alpha", { sessionStatus: "running" })),
+    ).toMatchObject({ tone: "working", color: "#f59e0b", label: "Claude travaille" });
+    expect(
+      resolveArkadiaThreadIndicator(
+        thread("codex-working", "alpha", {
+          instanceId: "codex",
+          sessionStatus: "running",
+        }),
+      ),
+    ).toMatchObject({ tone: "working", color: "#f59e0b", label: "Codex travaille" });
+  });
+
+  it("merges a solo conversation and separates multiple conversations into tab rows", () => {
+    expect(resolveArkadiaActiveProjectLayout(1)).toBe("solo");
+    expect(resolveArkadiaActiveProjectLayout(2)).toBe("tabs");
+  });
+
   it("uses the exact compact path convention from Arkadia", () => {
     expect(shortenArkadiaProjectPath("C:\\Users\\TRINITX\\Desktop\\Arkadia")).toBe(
       "Desktop\\Arkadia",

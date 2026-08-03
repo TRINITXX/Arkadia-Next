@@ -18,6 +18,8 @@ import {
 import { useComposerDraftStore } from "../composerDraftStore";
 import {
   buildArkadiaSidebarGroups,
+  resolveArkadiaActiveProjectLayout,
+  resolveArkadiaThreadIndicator,
   shortenArkadiaProjectPath,
   type ArkadiaSidebarProjectGroup,
 } from "./arkadiaSidebarModel";
@@ -28,32 +30,26 @@ function scopedProjectKey(environmentId: string, projectId: string): string {
   return `${environmentId}:${projectId}`;
 }
 
-function threadStatus(thread: EnvironmentThreadShell): {
-  readonly color: string;
-  readonly label: string;
-} {
-  if (thread.hasPendingApprovals || thread.hasPendingUserInput) {
-    return { color: "#ee9b00", label: "Claude attend votre réponse" };
-  }
-  if (thread.session?.status === "starting" || thread.session?.status === "running") {
-    return { color: "#c671ff", label: "Claude travaille" };
-  }
-  if (thread.session?.status === "error") {
-    return { color: "#ff6b6b", label: "La conversation a rencontré une erreur" };
-  }
-  return { color: "#84c452", label: "Conversation prête" };
-}
-
 function ThreadStatusDot({ thread }: { readonly thread: EnvironmentThreadShell }) {
-  const status = threadStatus(thread);
+  const status = resolveArkadiaThreadIndicator(thread);
   return (
     <span
       aria-label={status.label}
-      className="size-1.5 shrink-0 rounded-full"
+      className="relative size-2 shrink-0"
       role="img"
-      style={{ backgroundColor: status.color }}
       title={status.label}
-    />
+    >
+      {status.tone === "working" ? (
+        <span
+          className="absolute inset-0 animate-status-ping rounded-full opacity-45 motion-reduce:animate-none"
+          style={{ backgroundColor: status.color }}
+        />
+      ) : null}
+      <span
+        className="absolute inset-0 rounded-full ring-1 ring-zinc-950/50"
+        style={{ backgroundColor: status.color }}
+      />
+    </span>
   );
 }
 
@@ -68,6 +64,41 @@ function ActiveProjectGroup(props: {
   const { group, activeThreadId, onOpenProject, onOpenThread, onSettleProject, onSettleThread } =
     props;
   const projectIsActive = group.threads.some((thread) => thread.id === activeThreadId);
+  const layout = resolveArkadiaActiveProjectLayout(group.threads.length);
+
+  if (layout === "solo") {
+    const thread = group.threads[0]!;
+    const threadIsActive = thread.id === activeThreadId;
+
+    return (
+      <div
+        className="mx-1.5 mb-2 rounded-r border-l-[3px] pl-1.5 pr-1"
+        style={{ borderLeftColor: group.color }}
+      >
+        <button
+          className={`w-full cursor-pointer rounded px-1.5 py-1 text-left ${
+            threadIsActive
+              ? "bg-zinc-800 text-zinc-100"
+              : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+          }`}
+          onClick={() => onOpenThread(thread)}
+          onMouseDown={(event) => {
+            if (event.button !== 1) return;
+            event.preventDefault();
+            onSettleProject(group);
+          }}
+          title={`${thread.title}\n${group.project.workspaceRoot}`}
+          type="button"
+        >
+          <span className="block truncate text-[13px]">{group.project.title}</span>
+          <span className="mt-px flex items-center gap-2 text-xs">
+            <ThreadStatusDot thread={thread} />
+            <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -76,9 +107,7 @@ function ActiveProjectGroup(props: {
     >
       <button
         className={`flex w-full cursor-pointer items-center rounded px-1.5 py-1 text-left text-[13px] ${
-          projectIsActive
-            ? "bg-zinc-800 text-zinc-100"
-            : "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100"
+          projectIsActive ? "text-zinc-100" : "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100"
         }`}
         onClick={() => onOpenProject(group)}
         onMouseDown={(event) => {

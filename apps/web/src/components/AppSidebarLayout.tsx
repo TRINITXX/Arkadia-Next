@@ -181,7 +181,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     <SidebarProvider className="h-dvh! min-h-0!" defaultOpen style={sidebarProviderStyle}>
       <Sidebar
         side="left"
-        collapsible="offcanvas"
+        collapsible={isOnSettings ? "offcanvas" : "none"}
         data-app-sidebar=""
         data-sidebar-version={isOnSettings ? "v2" : "arkadia"}
         className={cn(
@@ -208,7 +208,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         {isOnSettings ? <SidebarRail /> : null}
       </Sidebar>
       {children}
-      <SidebarControl />
+      {isOnSettings ? <SidebarControl /> : null}
     </SidebarProvider>
   );
 }

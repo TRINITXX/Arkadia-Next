@@ -26,6 +26,64 @@ export interface ArkadiaSidebarGroups {
   readonly inactive: ReadonlyArray<ArkadiaSidebarProjectGroup>;
 }
 
+export type ArkadiaActiveProjectLayout = "empty" | "solo" | "tabs";
+
+export function resolveArkadiaActiveProjectLayout(threadCount: number): ArkadiaActiveProjectLayout {
+  if (threadCount <= 0) return "empty";
+  return threadCount === 1 ? "solo" : "tabs";
+}
+
+export interface ArkadiaThreadIndicator {
+  readonly tone: "waiting" | "working" | "error";
+  readonly color: string;
+  readonly label: string;
+}
+
+function agentDisplayName(instanceId: string): string {
+  const knownNames: Readonly<Record<string, string>> = {
+    claudeagent: "Claude",
+    codex: "Codex",
+    cursor: "Cursor",
+    grok: "Grok",
+    opencode: "OpenCode",
+  };
+  const normalized = instanceId.trim();
+  return (knownNames[normalized.toLowerCase()] ?? normalized) || "Agent";
+}
+
+export function resolveArkadiaThreadIndicator(
+  thread: EnvironmentThreadShell,
+): ArkadiaThreadIndicator {
+  const agentName = agentDisplayName(String(thread.modelSelection.instanceId));
+
+  if (thread.hasPendingApprovals || thread.hasPendingUserInput) {
+    return {
+      tone: "waiting",
+      color: "#10b981",
+      label: `${agentName} attend une réponse`,
+    };
+  }
+  if (thread.session?.status === "starting" || thread.session?.status === "running") {
+    return {
+      tone: "working",
+      color: "#f59e0b",
+      label: `${agentName} travaille`,
+    };
+  }
+  if (thread.session?.status === "error") {
+    return {
+      tone: "error",
+      color: "#ef4444",
+      label: `${agentName} a rencontré une erreur`,
+    };
+  }
+  return {
+    tone: "waiting",
+    color: "#10b981",
+    label: `${agentName} attend votre message`,
+  };
+}
+
 function projectKey(project: EnvironmentProject): string {
   return `${project.environmentId}:${project.id}`;
 }
