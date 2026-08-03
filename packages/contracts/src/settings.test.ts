@@ -16,6 +16,27 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 
+describe("Arkadia Claude defaults", () => {
+  it("matches the ccd launch behavior for a fresh settings file", () => {
+    expect(DEFAULT_SERVER_SETTINGS.providers.claudeAgent.binaryPath).toBe("claude");
+    expect(DEFAULT_SERVER_SETTINGS.providers.claudeAgent.launchArgs).toBe(
+      "--permission-mode auto --allow-dangerously-skip-permissions --effort high",
+    );
+  });
+
+  it("preserves an explicit empty launch argument override", () => {
+    const settings = decodeServerSettings({
+      providers: {
+        claudeAgent: {
+          launchArgs: "",
+        },
+      },
+    });
+
+    expect(settings.providers.claudeAgent.launchArgs).toBe("");
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);

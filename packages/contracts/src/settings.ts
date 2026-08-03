@@ -275,7 +275,9 @@ export const ClaudeSettings = makeProviderSettingsSchema(
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     launchArgs: Schema.String.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.withDecodingDefault(
+        Effect.succeed("--permission-mode auto --allow-dangerously-skip-permissions --effort high"),
+      ),
       Schema.annotateKey({
         title: "Launch arguments",
         description: "Additional CLI arguments passed on session start.",
