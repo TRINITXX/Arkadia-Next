@@ -31,7 +31,7 @@ export function ArkadiaToolbar({ terminalAvailable, onOpenNewTerminal }: Arkadia
     <div className="flex h-9 min-w-0 flex-1 items-center gap-1 border-b border-zinc-800 bg-zinc-950 px-2 text-zinc-300">
       <button
         onClick={toggleSidebar}
-        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
+        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 [-webkit-app-region:no-drag]"
         title={sidebarOpen ? "Fermer la barre latérale" : "Ouvrir la barre latérale"}
         aria-label={sidebarOpen ? "Fermer la barre latérale" : "Ouvrir la barre latérale"}
         aria-pressed={sidebarOpen}
@@ -48,7 +48,7 @@ export function ArkadiaToolbar({ terminalAvailable, onOpenNewTerminal }: Arkadia
 
       <button
         onClick={() => void navigate({ to: "/settings" })}
-        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
+        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 [-webkit-app-region:no-drag]"
         title="Réglages"
         aria-label="Réglages"
         type="button"
@@ -58,7 +58,7 @@ export function ArkadiaToolbar({ terminalAvailable, onOpenNewTerminal }: Arkadia
       <button
         onClick={onOpenNewTerminal}
         disabled={!terminalAvailable}
-        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex size-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 [-webkit-app-region:no-drag]"
         title="Nouveau terminal"
         aria-label="Nouveau terminal"
         type="button"

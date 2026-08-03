@@ -5546,6 +5546,12 @@ function ChatViewContent(props: ChatViewProps) {
       onToggleTerminal={toggleTerminalVisibility}
     />
   );
+  // `panelToggleControls` (the terminal-drawer toggle) is intentionally not
+  // rendered here anymore: ArkadiaToolbar's own terminal button now lives in
+  // the header, and this floating overlay used to sit exactly where the
+  // header's controls are, so keeping both meant two contradictory
+  // PanelBottomIcon buttons on screen at once. It's still used standalone by
+  // the mobile right-panel sheet below, which is a separate surface.
   const panelLayoutControls = (
     <div className="workspace-titlebar-controls z-50 mr-px gap-1 [-webkit-app-region:no-drag]">
       {rightPanelOpen && !shouldUsePlanSidebarSheet ? (
@@ -5554,7 +5560,6 @@ function ChatViewContent(props: ChatViewProps) {
           onToggle={toggleRightPanelMaximized}
         />
       ) : null}
-      {panelToggleControls}
     </div>
   );
   const rightPanelContent = activeThreadRef ? (
@@ -5646,7 +5651,12 @@ function ChatViewContent(props: ChatViewProps) {
         <header
           data-chat-header
           className={cn(
-            "bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
+            // Overrides .workspace-topbar's shared 52px height (also used by
+            // the settings header and the Electron title-bar-overlay math)
+            // to match ArkadiaWorkspaceTabs' h-9 so the two bars read as one
+            // unit. Scoped to this header only — the shared
+            // --workspace-topbar-height variable is untouched.
+            "h-9! min-h-9! bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
             isElectron
               ? cn(
                   "workspace-topbar drag-region relative px-3 sm:px-5",
@@ -5658,7 +5668,6 @@ function ChatViewContent(props: ChatViewProps) {
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
-          {!rightPanelOpen ? panelLayoutControls : null}
           <ArkadiaToolbar
             terminalAvailable={activeProject !== null}
             onOpenNewTerminal={() => {
