@@ -20,8 +20,17 @@ const clientSettings: ClientSettings = {
   dismissedProviderUpdateNotificationKeys: [],
   diffIgnoreWhitespace: true,
   environmentIdentificationMode: "artwork",
-  favorites: [],
   glassOpacity: 80,
+  contentPaletteId: "wez",
+  customContentPalette: { bg: "#0a0a0a", fg: "#fafafa" },
+  chromeBackgroundId: "noir",
+  agentFontFamily:
+    '"DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+  agentFontSize: 15,
+  terminalFontFamily:
+    '"Maple Mono NF", "Maple Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace',
+  terminalFontSize: 14,
+  favorites: [],
   providerModelPreferences: {},
   sidebarAutoSettleAfterDays: 3,
   sidebarProjectGroupingMode: "repository_path",

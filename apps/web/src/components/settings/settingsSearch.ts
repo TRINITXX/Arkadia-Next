@@ -65,6 +65,26 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "content-palette",
+    title: "Content palette",
+    to: "/settings/appearance",
+  },
+  {
+    id: "chrome-background",
+    title: "Chrome background",
+    to: "/settings/appearance",
+  },
+  {
+    id: "agent-font",
+    title: "Agent font",
+    to: "/settings/appearance",
+  },
+  {
+    id: "terminal-font",
+    title: "Terminal font",
+    to: "/settings/appearance",
+  },
+  {
     id: "toolbar",
     title: "Barre d'outils",
     to: "/settings/toolbar",

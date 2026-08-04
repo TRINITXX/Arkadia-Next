@@ -1700,3 +1700,47 @@ label:has(> select#reasoning-effort) select {
   opacity: 0.3;
   pointer-events: none;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Appearance: theme-by-zone + fonts-by-view (ported from Arkadia).
+   Driven by CSS variables/attributes set on <html> by the *Sync components in
+   routes/__root.tsx.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Content-theme palette (agent thread + terminal). Scoped to the content region
+   (the main inset) so the sidebar + tab strip (chrome) keep their own tokens.
+   The terminal drawer (.thread-terminal-drawer, bg-background) inherits it too,
+   and terminalThemeFromApp reads its resulting computed background. */
+:root[data-content-palette="on"] main[data-slot="sidebar-inset"] {
+  --background: var(--content-bg);
+  --foreground: var(--content-fg);
+}
+
+/* Agent-thread font. AgentFontSync sets these only when the user diverges from
+   the default, so the vars fall back to `inherit` and the default is untouched. */
+.chat-markdown {
+  font-family: var(--agent-font-family, inherit);
+  font-size: var(--agent-font-size, inherit);
+}
+
+/* Chrome background (frosted-glass gradient presets), dark mode only. The
+   gradient sits behind the app; the sidebar + tab strip become translucent to
+   reveal it, while content + terminals stay opaque (own --background). */
+:root[data-chrome-glass="on"] body {
+  background-image: var(--surface-grain), var(--app-chrome-image);
+  background-repeat: repeat, no-repeat;
+  background-size:
+    256px 256px,
+    cover;
+  background-position:
+    0 0,
+    center;
+  background-attachment: scroll, fixed;
+}
+
+:root[data-chrome-glass="on"] [data-slot="sidebar"],
+:root[data-chrome-glass="on"] .workspace-topbar {
+  background-color: color-mix(in srgb, var(--sidebar) var(--glass-opacity), transparent) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}

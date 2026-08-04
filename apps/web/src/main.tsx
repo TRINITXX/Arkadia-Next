@@ -6,8 +6,15 @@ import { ClerkProvider as ElectronClerkProvider } from "@clerk/electron/react";
 import { createHashHistory, createBrowserHistory } from "@tanstack/react-router";
 
 import "@fontsource-variable/dm-sans/index.css";
+import "@fontsource-variable/inter/index.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
+// Curated terminal fonts (mono). Cascadia Code is the metrics font; Maple Mono
+// is the default terminal family ported from Arkadia.
+import "@fontsource/cascadia-code/400.css";
+import "@fontsource/cascadia-code/700.css";
+import "@fontsource/maple-mono/400.css";
+import "@fontsource/maple-mono/700.css";
 import "./index.css";
 
 import { isElectron } from "./env";

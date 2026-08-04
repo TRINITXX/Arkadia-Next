@@ -34,8 +34,12 @@ import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
   type EnvironmentIdentificationMode,
+  MAX_AGENT_FONT_SIZE,
   MAX_GLASS_OPACITY,
+  MAX_TERMINAL_FONT_SIZE,
+  MIN_AGENT_FONT_SIZE,
   MIN_GLASS_OPACITY,
+  MIN_TERMINAL_FONT_SIZE,
 } from "@t3tools/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
@@ -63,6 +67,9 @@ import {
 } from "../SidebarStageBackdrop";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
+import { AGENT_FONT_OPTIONS, TERMINAL_FONT_OPTIONS } from "../../lib/appFonts";
+import { CHROME_BACKGROUNDS } from "../../lib/backgrounds";
+import { CONTENT_PALETTES } from "../../lib/palettes";
 import { useTheme } from "../../hooks/useTheme";
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
@@ -1107,6 +1114,254 @@ export function AppearanceSettingsPanel() {
               onCheckedChange={(checked) => updateSettings({ wordWrap: Boolean(checked) })}
               aria-label="Wrap code, tables, diffs, and file previews by default"
             />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("content-palette")}
+          description="Palette du fil de l'agent et des terminaux (fond, texte, curseur). Portée depuis Arkadia."
+          resetAction={
+            settings.contentPaletteId !== DEFAULT_UNIFIED_SETTINGS.contentPaletteId ? (
+              <SettingResetButton
+                label="content palette"
+                onClick={() =>
+                  updateSettings({
+                    contentPaletteId: DEFAULT_UNIFIED_SETTINGS.contentPaletteId,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full flex-col gap-2 sm:w-80">
+              <div className="grid grid-cols-3 gap-2">
+                {[...CONTENT_PALETTES, { id: "custom" as const, name: "Custom" }].map((palette) => {
+                  const selected = palette.id === settings.contentPaletteId;
+                  const swatch =
+                    palette.id === "custom"
+                      ? settings.customContentPalette
+                      : { bg: palette.bg, fg: palette.fg };
+                  return (
+                    <button
+                      key={palette.id}
+                      type="button"
+                      onClick={() => updateSettings({ contentPaletteId: palette.id })}
+                      style={{ backgroundColor: swatch.bg, color: swatch.fg }}
+                      className={`rounded-md border px-2 py-2 text-left text-xs transition ${
+                        selected
+                          ? "border-ring ring-1 ring-ring"
+                          : "border-border hover:border-ring/60"
+                      }`}
+                    >
+                      {palette.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {settings.contentPaletteId === "custom" ? (
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="color"
+                      aria-label="Custom background"
+                      value={settings.customContentPalette.bg}
+                      onChange={(event) =>
+                        updateSettings({
+                          customContentPalette: {
+                            ...settings.customContentPalette,
+                            bg: event.target.value,
+                          },
+                        })
+                      }
+                      className="h-6 w-8 cursor-pointer rounded border border-border bg-transparent"
+                    />
+                    Fond
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="color"
+                      aria-label="Custom foreground"
+                      value={settings.customContentPalette.fg}
+                      onChange={(event) =>
+                        updateSettings({
+                          customContentPalette: {
+                            ...settings.customContentPalette,
+                            fg: event.target.value,
+                          },
+                        })
+                      }
+                      className="h-6 w-8 cursor-pointer rounded border border-border bg-transparent"
+                    />
+                    Texte
+                  </label>
+                </div>
+              ) : null}
+            </div>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("chrome-background")}
+          description="Fond dégradé du chrome (barre latérale, onglets) avec verre dépoli. En thème sombre uniquement ; « Noir » garde l'apparence actuelle."
+          resetAction={
+            settings.chromeBackgroundId !== DEFAULT_UNIFIED_SETTINGS.chromeBackgroundId ? (
+              <SettingResetButton
+                label="chrome background"
+                onClick={() =>
+                  updateSettings({
+                    chromeBackgroundId: DEFAULT_UNIFIED_SETTINGS.chromeBackgroundId,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="grid w-full grid-cols-4 gap-2 sm:w-80">
+              {CHROME_BACKGROUNDS.map((background) => {
+                const selected = background.id === settings.chromeBackgroundId;
+                return (
+                  <button
+                    key={background.id}
+                    type="button"
+                    title={background.name}
+                    onClick={() => updateSettings({ chromeBackgroundId: background.id })}
+                    style={{ background: background.css }}
+                    className={`flex h-10 items-end rounded-md border p-1 text-[10px] transition ${
+                      selected
+                        ? "border-ring ring-1 ring-ring"
+                        : "border-border hover:border-ring/60"
+                    }`}
+                  >
+                    <span className="rounded bg-black/40 px-1 text-white">{background.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("agent-font")}
+          description="Police du fil de l'agent (sans-serif) et sa taille."
+          resetAction={
+            settings.agentFontFamily !== DEFAULT_UNIFIED_SETTINGS.agentFontFamily ||
+            settings.agentFontSize !== DEFAULT_UNIFIED_SETTINGS.agentFontSize ? (
+              <SettingResetButton
+                label="agent font"
+                onClick={() =>
+                  updateSettings({
+                    agentFontFamily: DEFAULT_UNIFIED_SETTINGS.agentFontFamily,
+                    agentFontSize: DEFAULT_UNIFIED_SETTINGS.agentFontSize,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full flex-col gap-2 sm:w-52">
+              <Select
+                value={settings.agentFontFamily}
+                onValueChange={(value) => updateSettings({ agentFontFamily: value })}
+              >
+                <SelectTrigger className="w-full" aria-label="Agent font family">
+                  <SelectValue>
+                    {AGENT_FONT_OPTIONS.find((option) => option.value === settings.agentFontFamily)
+                      ?.label ?? "Personnalisée"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {AGENT_FONT_OPTIONS.map((option) => (
+                    <SelectItem hideIndicator key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <div className="flex items-center gap-3">
+                <output className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground">
+                  {settings.agentFontSize}px
+                </output>
+                <input
+                  type="range"
+                  aria-label="Agent font size"
+                  className="min-w-0 flex-1"
+                  style={{ accentColor: "var(--primary)" }}
+                  min={MIN_AGENT_FONT_SIZE}
+                  max={MAX_AGENT_FONT_SIZE}
+                  step={1}
+                  value={settings.agentFontSize}
+                  onChange={(event) => {
+                    const agentFontSize = Number(event.currentTarget.value);
+                    if (Number.isInteger(agentFontSize)) {
+                      updateSettings({ agentFontSize });
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("terminal-font")}
+          description="Police des terminaux (monospace) et sa taille."
+          resetAction={
+            settings.terminalFontFamily !== DEFAULT_UNIFIED_SETTINGS.terminalFontFamily ||
+            settings.terminalFontSize !== DEFAULT_UNIFIED_SETTINGS.terminalFontSize ? (
+              <SettingResetButton
+                label="terminal font"
+                onClick={() =>
+                  updateSettings({
+                    terminalFontFamily: DEFAULT_UNIFIED_SETTINGS.terminalFontFamily,
+                    terminalFontSize: DEFAULT_UNIFIED_SETTINGS.terminalFontSize,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex w-full flex-col gap-2 sm:w-52">
+              <Select
+                value={settings.terminalFontFamily}
+                onValueChange={(value) => updateSettings({ terminalFontFamily: value })}
+              >
+                <SelectTrigger className="w-full" aria-label="Terminal font family">
+                  <SelectValue>
+                    {TERMINAL_FONT_OPTIONS.find(
+                      (option) => option.value === settings.terminalFontFamily,
+                    )?.label ?? "Personnalisée"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {TERMINAL_FONT_OPTIONS.map((option) => (
+                    <SelectItem hideIndicator key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <div className="flex items-center gap-3">
+                <output className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground">
+                  {settings.terminalFontSize}px
+                </output>
+                <input
+                  type="range"
+                  aria-label="Terminal font size"
+                  className="min-w-0 flex-1"
+                  style={{ accentColor: "var(--primary)" }}
+                  min={MIN_TERMINAL_FONT_SIZE}
+                  max={MAX_TERMINAL_FONT_SIZE}
+                  step={1}
+                  value={settings.terminalFontSize}
+                  onChange={(event) => {
+                    const terminalFontSize = Number(event.currentTarget.value);
+                    if (Number.isInteger(terminalFontSize)) {
+                      updateSettings({ terminalFontSize });
+                    }
+                  }}
+                />
+              </div>
+            </div>
           }
         />
       </SettingsSection>
