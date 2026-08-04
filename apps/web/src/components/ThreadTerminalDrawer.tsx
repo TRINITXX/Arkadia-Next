@@ -35,6 +35,7 @@ import { cn } from "~/lib/utils";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
   GhosttyTerminalSurface,
+  type GhosttyTerminalFont,
   type GhosttyTerminalSurfaceOptions,
 } from "~/terminal/ghostty/surface";
 import { type GhosttyColor, type GhosttyTheme } from "~/terminal/ghostty/core";
@@ -129,6 +130,24 @@ function normalizeComputedColor(value: string | null | undefined, fallback: stri
     return fallback;
   }
   return value ?? fallback;
+}
+
+/**
+ * Reads the terminal font from the `--terminal-font-*` CSS variables set on
+ * `<html>` by `TerminalFontSync`. Returns an empty request when unset/invalid,
+ * so the surface falls back to its own defaults (`terminalFontFamily`/`Size`).
+ */
+function terminalFontFromApp(): GhosttyTerminalFont {
+  if (typeof document === "undefined" || typeof getComputedStyle === "undefined") {
+    return {};
+  }
+  const styles = getComputedStyle(document.documentElement);
+  const family = styles.getPropertyValue("--terminal-font-family").trim();
+  const size = Number.parseInt(styles.getPropertyValue("--terminal-font-size").trim(), 10);
+  return {
+    ...(family ? { family } : {}),
+    ...(Number.isFinite(size) && size > 0 ? { size } : {}),
+  };
 }
 
 function terminalThemeFromApp(mountElement?: HTMLElement | null): GhosttyTheme {
@@ -386,6 +405,7 @@ export function TerminalViewport({
     const setup = async (): Promise<(() => void) | null> => {
       const terminalOptions: GhosttyTerminalSurfaceOptions = {
         theme: terminalThemeFromApp(mount),
+        font: terminalFontFromApp(),
         onData: (data) => handleData(data),
         onResize: (cols, rows) => void resizeTerminal(cols, rows),
         onSelectionChange: () => handleSelectionChange(),
@@ -671,6 +691,7 @@ export function TerminalViewport({
         const activeTerminal = terminalRef.current;
         if (!activeTerminal) return;
         activeTerminal.setTheme(terminalThemeFromApp(containerRef.current));
+        void activeTerminal.setFont(terminalFontFromApp());
       });
       themeObserver.observe(document.documentElement, {
         attributes: true,

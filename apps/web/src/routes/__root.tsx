@@ -35,7 +35,13 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { useUiStateStore } from "../uiStateStore";
-import { syncBrowserChromeTheme } from "../hooks/useTheme";
+import { syncBrowserChromeTheme, useTheme } from "../hooks/useTheme";
+import { resolveChromeBackground } from "../lib/backgrounds";
+import { isNativeContentPalette, resolveContentPalette } from "../lib/palettes";
+import {
+  DEFAULT_AGENT_FONT_FAMILY,
+  DEFAULT_AGENT_FONT_SIZE,
+} from "@t3tools/contracts/settings";
 import { configureClientTracing } from "../observability/clientTracing";
 import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
@@ -129,6 +135,10 @@ function RootRouteView() {
       <AnchoredToastProvider>
         <DocumentTitleSync />
         <GlassAppearanceSync />
+        <ContentPaletteSync />
+        <ChromeBackgroundSync />
+        <AgentFontSync />
+        <TerminalFontSync />
         {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
         <RelayClientInstallDialog />
         <ConnectOnboardingDialog />
@@ -157,6 +167,94 @@ function GlassAppearanceSync() {
   useEffect(() => {
     document.documentElement.style.setProperty("--glass-opacity", `${glassOpacity}%`);
   }, [glassOpacity]);
+
+  return null;
+}
+
+// Content-theme palette (agent thread + terminal). Sets --content-bg/-fg on
+// <html> and flags data-content-palette; index.css scopes the override to the
+// content region. Mutating <html>.style also wakes the terminal's theme
+// observer (ThreadTerminalDrawer), so the terminal re-reads its computed bg.
+function ContentPaletteSync() {
+  const paletteId = useClientSettings((settings) => settings.contentPaletteId);
+  const customPalette = useClientSettings((settings) => settings.customContentPalette);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    // "arkadia" = follow the app's own light/dark tokens: clear the override.
+    if (isNativeContentPalette(paletteId)) {
+      root.removeAttribute("data-content-palette");
+      root.style.removeProperty("--content-bg");
+      root.style.removeProperty("--content-fg");
+      return;
+    }
+    const palette = resolveContentPalette(paletteId, customPalette);
+    root.style.setProperty("--content-bg", palette.bg);
+    root.style.setProperty("--content-fg", palette.fg);
+    root.setAttribute("data-content-palette", "on");
+  }, [paletteId, customPalette]);
+
+  return null;
+}
+
+// Chrome background (frosted-glass gradient presets). Dark mode only: sets the
+// gradient on --app-chrome-image and flags data-chrome-glass; index.css layers
+// the gradient behind the chrome and frosts the sidebar + tab strip.
+function ChromeBackgroundSync() {
+  const backgroundId = useClientSettings((settings) => settings.chromeBackgroundId);
+  const { resolvedTheme } = useTheme();
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const background = resolveChromeBackground(backgroundId);
+    const active = resolvedTheme === "dark" && background.glass && background.id !== "noir";
+    if (active) {
+      root.style.setProperty("--app-chrome-image", background.css);
+      root.setAttribute("data-chrome-glass", "on");
+    } else {
+      root.style.removeProperty("--app-chrome-image");
+      root.removeAttribute("data-chrome-glass");
+    }
+  }, [backgroundId, resolvedTheme]);
+
+  return null;
+}
+
+// Agent-thread font. Only overrides when the user diverges from the default, so
+// the default rendering of `.chat-markdown` is preserved untouched.
+function AgentFontSync() {
+  const agentFontFamily = useClientSettings((settings) => settings.agentFontFamily);
+  const agentFontSize = useClientSettings((settings) => settings.agentFontSize);
+
+  useEffect(() => {
+    const style = document.documentElement.style;
+    if (agentFontFamily === DEFAULT_AGENT_FONT_FAMILY) {
+      style.removeProperty("--agent-font-family");
+    } else {
+      style.setProperty("--agent-font-family", agentFontFamily);
+    }
+    if (agentFontSize === DEFAULT_AGENT_FONT_SIZE) {
+      style.removeProperty("--agent-font-size");
+    } else {
+      style.setProperty("--agent-font-size", `${agentFontSize}px`);
+    }
+  }, [agentFontFamily, agentFontSize]);
+
+  return null;
+}
+
+// Terminal font. Always publishes concrete values on <html>; the terminal reads
+// them via `terminalFontFromApp` (canvas can't read CSS vars). Mutating the vars
+// wakes the terminal's observer, which calls `surface.setFont`.
+function TerminalFontSync() {
+  const terminalFontFamily = useClientSettings((settings) => settings.terminalFontFamily);
+  const terminalFontSize = useClientSettings((settings) => settings.terminalFontSize);
+
+  useEffect(() => {
+    const style = document.documentElement.style;
+    style.setProperty("--terminal-font-family", terminalFontFamily);
+    style.setProperty("--terminal-font-size", `${terminalFontSize}px`);
+  }, [terminalFontFamily, terminalFontSize]);
 
   return null;
 }
