@@ -7,6 +7,8 @@ import * as Ref from "effect/Ref";
 
 import * as Electron from "electron";
 
+import type { DesktopNotificationInput } from "@t3tools/contracts";
+
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
@@ -15,7 +17,11 @@ import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import { MENU_ACTION_CHANNEL, WINDOW_FULLSCREEN_STATE_CHANNEL } from "../ipc/channels.ts";
+import {
+  MENU_ACTION_CHANNEL,
+  NOTIFICATION_OPEN_THREAD_CHANNEL,
+  WINDOW_FULLSCREEN_STATE_CHANNEL,
+} from "../ipc/channels.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 
@@ -81,6 +87,13 @@ export class DesktopWindow extends Context.Service<
     readonly flushMainWindowBounds: Effect.Effect<void>;
     readonly dispatchMenuAction: (action: string) => Effect.Effect<void, DesktopWindowError>;
     readonly syncAppearance: Effect.Effect<void>;
+    // Show a compact corner notification popup. Called from the renderer (via
+    // IPC) when an agent event fires while the main window is not focused.
+    readonly showNotification: (payload: DesktopNotificationInput) => Effect.Effect<void>;
+    // Reveal the app on the popup's thread, then close it. Called by the popup.
+    readonly activateNotification: (id: string) => Effect.Effect<void>;
+    // Close a popup without opening its thread (its ✕ button). Called by the popup.
+    readonly dismissNotification: (id: string) => Effect.Effect<void>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -237,6 +250,48 @@ function bindFirstRevealTrigger(
   }
 }
 
+// ── Custom notification popup ──────────────────────────────────
+// A compact, frameless, always-on-top corner window (Arkadia's "maison"
+// notification), shown only while the main window is not focused. It is a
+// self-contained data-URL page — like the connecting splash — but it loads the
+// main preload so its inline script can call `desktopBridge.notificationActivate`
+// / `notificationDismiss`, keyed by the id the main process bakes in.
+const NOTIFICATION_WIDTH = 360;
+const NOTIFICATION_HEIGHT = 76;
+const NOTIFICATION_BOTTOM_GAP = 12;
+const NOTIFICATION_DOT_COLORS: Record<DesktopNotificationInput["kind"], string> = {
+  finished: "#22c55e",
+  waiting: "#a855f7",
+  error: "#ef4444",
+};
+
+interface NotificationEntry {
+  readonly id: string;
+  readonly window: Electron.BrowserWindow;
+  readonly environmentId: string;
+  readonly threadId: string;
+}
+
+function escapeNotificationHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// `id` is always "notif-<n>" (safe to inline into the script); the project name
+// and thread title are the only untrusted strings, so they are HTML-escaped.
+function buildNotificationDataUrl(id: string, payload: DesktopNotificationInput): string {
+  const dot = NOTIFICATION_DOT_COLORS[payload.kind];
+  const background = escapeNotificationHtml(payload.background);
+  const foreground = escapeNotificationHtml(payload.foreground);
+  const project = escapeNotificationHtml(payload.projectName);
+  const title = escapeNotificationHtml(payload.threadTitle);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"><style>html,body{margin:0;height:100%;overflow:hidden}body{position:relative;background:${background};color:${foreground};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;align-items:center;gap:10px;padding:0 16px;box-sizing:border-box;cursor:pointer;-webkit-user-select:none;user-select:none}.dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:${dot}}.text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}.project{font-size:12px;font-weight:600;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.close{position:absolute;top:6px;right:6px;width:18px;height:18px;padding:0;border:0;border-radius:4px;background:transparent;color:inherit;opacity:.5;cursor:pointer;font-size:11px;line-height:18px}.close:hover{opacity:1;background:rgba(127,127,127,.18)}</style></head><body><span class="dot"></span><span class="text"><span class="project">${project}</span><span class="title">${title}</span></span><button id="close" class="close" aria-label="Fermer">✕</button><script>var b=window.desktopBridge;document.body.addEventListener("click",function(){if(b)b.notificationActivate("${id}")});var c=document.getElementById("close");if(c)c.addEventListener("click",function(e){e.stopPropagation();if(b)b.notificationDismiss("${id}")});</script></body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
 export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const assets = yield* DesktopAssets.DesktopAssets;
@@ -265,6 +320,21 @@ export const make = Effect.gen(function* () {
     if (Option.isSome(splash) && !splash.value.isDestroyed()) {
       splash.value.close();
     }
+  });
+
+  // Live corner-notification popups, newest last. Cascade upward off the count.
+  const notificationWindowsRef = yield* Ref.make<ReadonlyArray<NotificationEntry>>([]);
+  const notificationIdCounterRef = yield* Ref.make(0);
+
+  const closeAllNotifications = Effect.gen(function* () {
+    const entries = yield* Ref.getAndSet(notificationWindowsRef, []);
+    yield* Effect.sync(() => {
+      for (const entry of entries) {
+        if (!entry.window.isDestroyed()) {
+          entry.window.close();
+        }
+      }
+    });
   });
 
   // currentMainOrFirst / focusedMainOrFirst fall back to "any first window",
@@ -342,6 +412,12 @@ export const make = Effect.gen(function* () {
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);
     }
+
+    // Returning to the app clears any corner notifications still on screen — if
+    // you are looking at Arkadia, the popup has done its job.
+    window.on("focus", () => {
+      void runPromise(closeAllNotifications);
+    });
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let boundsPersistenceEnabled = persistedBounds === null || restoredPersistedBounds;
@@ -793,6 +869,100 @@ export const make = Effect.gen(function* () {
         syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
       );
     }).pipe(Effect.withSpan("desktop.window.syncAppearance")),
+    showNotification: (payload) =>
+      Effect.gen(function* () {
+        // Only ever one popup on screen — replace whatever is already there.
+        yield* closeAllNotifications;
+        const sequence = yield* Ref.updateAndGet(notificationIdCounterRef, (value) => value + 1);
+        const id = `notif-${sequence}`;
+        const workArea = yield* Effect.sync(() => Electron.screen.getPrimaryDisplay().workArea);
+        // Flush to the right edge of the work area.
+        const x = workArea.x + workArea.width - NOTIFICATION_WIDTH;
+        const y = workArea.y + workArea.height - NOTIFICATION_HEIGHT - NOTIFICATION_BOTTOM_GAP;
+        const window = yield* electronWindow.create({
+          width: NOTIFICATION_WIDTH,
+          height: NOTIFICATION_HEIGHT,
+          x,
+          y,
+          frame: false,
+          resizable: false,
+          minimizable: false,
+          maximizable: false,
+          fullscreenable: false,
+          skipTaskbar: true,
+          alwaysOnTop: true,
+          focusable: false,
+          show: false,
+          backgroundColor: payload.background,
+          title: environment.displayName,
+          webPreferences: {
+            preload: environment.preloadPath,
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+          },
+        });
+        yield* Ref.update(notificationWindowsRef, (entries) => [
+          ...entries,
+          { id, window, environmentId: payload.environmentId, threadId: payload.threadId },
+        ]);
+        yield* Effect.sync(() => {
+          // Float above fullscreen apps, like Arkadia's popup.
+          window.setAlwaysOnTop(true, "screen-saver");
+          window.once("closed", () => {
+            void runPromise(
+              Ref.update(notificationWindowsRef, (entries) =>
+                entries.filter((entry) => entry.id !== id),
+              ),
+            );
+          });
+          window.once("ready-to-show", () => {
+            if (!window.isDestroyed()) {
+              // showInactive keeps focus on whatever the user is doing.
+              window.showInactive();
+            }
+          });
+          void window.loadURL(buildNotificationDataUrl(id, payload));
+        });
+      }).pipe(
+        Effect.catch((error) =>
+          logWindowWarning("failed to show notification popup", { message: String(error) }),
+        ),
+        Effect.withSpan("desktop.window.showNotification"),
+      ),
+    activateNotification: (id) =>
+      Effect.gen(function* () {
+        const entries = yield* Ref.get(notificationWindowsRef);
+        const entry = entries.find((candidate) => candidate.id === id);
+        if (!entry) return;
+        const main = yield* currentMainWindow;
+        if (Option.isSome(main)) {
+          yield* electronWindow.reveal(main.value);
+          yield* Effect.sync(() => {
+            if (!main.value.isDestroyed()) {
+              main.value.webContents.send(NOTIFICATION_OPEN_THREAD_CHANNEL, {
+                environmentId: entry.environmentId,
+                threadId: entry.threadId,
+              });
+            }
+          });
+        }
+        yield* Effect.sync(() => {
+          if (!entry.window.isDestroyed()) {
+            entry.window.close();
+          }
+        });
+      }).pipe(Effect.orDie, Effect.withSpan("desktop.window.activateNotification")),
+    dismissNotification: (id) =>
+      Effect.gen(function* () {
+        const entries = yield* Ref.get(notificationWindowsRef);
+        const entry = entries.find((candidate) => candidate.id === id);
+        yield* Effect.sync(() => {
+          if (entry && !entry.window.isDestroyed()) {
+            entry.window.close();
+          }
+        });
+      }).pipe(Effect.withSpan("desktop.window.dismissNotification")),
   });
 });
 

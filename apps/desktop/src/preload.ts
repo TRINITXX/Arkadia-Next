@@ -105,6 +105,20 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ...(position === undefined ? {} : { position }),
     }),
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
+  showNotification: (payload) => ipcRenderer.invoke(IpcChannels.NOTIFICATION_SHOW_CHANNEL, payload),
+  notificationActivate: (id) => ipcRenderer.invoke(IpcChannels.NOTIFICATION_ACTIVATE_CHANNEL, id),
+  notificationDismiss: (id) => ipcRenderer.invoke(IpcChannels.NOTIFICATION_DISMISS_CHANNEL, id),
+  onNotificationOpenThread: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, target: unknown) => {
+      if (typeof target !== "object" || target === null) return;
+      listener(target as Parameters<typeof listener>[0]);
+    };
+
+    ipcRenderer.on(IpcChannels.NOTIFICATION_OPEN_THREAD_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.NOTIFICATION_OPEN_THREAD_CHANNEL, wrappedListener);
+    };
+  },
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;

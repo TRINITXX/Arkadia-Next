@@ -1592,6 +1592,34 @@ export function GeneralSettingsPanel() {
           }
         />
 
+        {isElectron ? (
+          <SettingsRow
+            {...searchableSetting("desktop-notifications")}
+            description="Afficher une notification compacte dans un coin de l'écran quand un agent termine, attend une réponse ou rencontre une erreur alors que l'app n'est pas au premier plan."
+            resetAction={
+              settings.desktopNotifications !== DEFAULT_UNIFIED_SETTINGS.desktopNotifications ? (
+                <SettingResetButton
+                  label="desktop notifications"
+                  onClick={() =>
+                    updateSettings({
+                      desktopNotifications: DEFAULT_UNIFIED_SETTINGS.desktopNotifications,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.desktopNotifications}
+                onCheckedChange={(checked) =>
+                  updateSettings({ desktopNotifications: Boolean(checked) })
+                }
+                aria-label="Notifications bureau"
+              />
+            }
+          />
+        ) : null}
+
         <SettingsRow
           {...searchableSetting("text-generation-model")}
           description="Default model for generated text like thread titles and source control content. Source control settings can override it with a dedicated source control writer model."

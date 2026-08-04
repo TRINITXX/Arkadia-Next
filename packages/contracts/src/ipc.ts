@@ -958,6 +958,34 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
   input: PreviewAutomationWaitForInput,
 });
 
+// ── Desktop custom notifications ───────────────────────────────
+// The renderer detects an agent event worth surfacing (a turn finished, the
+// agent is waiting for the user, or an error) and — only while the main window
+// is not focused — asks the main process to show a compact, frameless,
+// always-on-top popup in the corner (the "maison" notification, replacing an OS
+// toast). Colours are resolved from the live theme by the renderer so the popup
+// matches the app exactly. Clicking the popup reveals the app on that thread.
+export const DesktopNotificationKindSchema = Schema.Literals(["finished", "waiting", "error"]);
+export type DesktopNotificationKind = typeof DesktopNotificationKindSchema.Type;
+
+export const DesktopNotificationInputSchema = Schema.Struct({
+  environmentId: Schema.String,
+  threadId: Schema.String,
+  kind: DesktopNotificationKindSchema,
+  projectName: Schema.String,
+  threadTitle: Schema.String,
+  /** Resolved app background colour (e.g. "rgb(10, 10, 10)"), baked into the popup. */
+  background: Schema.String,
+  /** Resolved app foreground colour, baked into the popup. */
+  foreground: Schema.String,
+});
+export type DesktopNotificationInput = typeof DesktopNotificationInputSchema.Type;
+
+export interface DesktopNotificationOpenTarget {
+  readonly environmentId: string;
+  readonly threadId: string;
+}
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   // One bootstrap per pool instance currently registered with bootstrap
@@ -1007,6 +1035,17 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  // Custom notification popup (desktop only). `showNotification` is called from
+  // the main-window renderer; `notificationActivate`/`notificationDismiss` are
+  // called from the popup window itself (its inline script), keyed by the id the
+  // main process baked into it. `onNotificationOpenThread` fires in the main
+  // window when a popup is clicked, so the renderer can navigate to the thread.
+  showNotification: (payload: DesktopNotificationInput) => Promise<void>;
+  notificationActivate: (id: string) => Promise<void>;
+  notificationDismiss: (id: string) => Promise<void>;
+  onNotificationOpenThread: (
+    listener: (target: DesktopNotificationOpenTarget) => void,
+  ) => () => void;
   onMenuAction: (listener: (action: string) => void) => () => void;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;

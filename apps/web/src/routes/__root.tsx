@@ -28,6 +28,7 @@ import {
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { useClientSettings } from "../hooks/useSettings";
+import { useDesktopThreadNotifications } from "../hooks/useDesktopThreadNotifications";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKeyFromPath,
@@ -135,11 +136,19 @@ function RootRouteView() {
         <SlowRpcRequestToastCoordinator />
         <HostedStaticEnvironmentBootstrap />
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
+        {primaryEnvironmentAuthenticated ? <DesktopNotificationsBridge /> : null}
         {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
         {appShell}
       </AnchoredToastProvider>
     </ToastProvider>
   );
+}
+
+// Desktop-only corner notifications. Null component so the hook lives on the
+// authenticated app tree, next to EventRouter.
+function DesktopNotificationsBridge() {
+  useDesktopThreadNotifications();
+  return null;
 }
 
 function GlassAppearanceSync() {
