@@ -95,6 +95,7 @@ import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
+import * as SharedProjectMemory from "./memory/SharedProjectMemory.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
@@ -364,6 +365,7 @@ const makeWsRpcLayer = (
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const sharedProjectMemory = yield* SharedProjectMemory.SharedProjectMemory;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const voiceService = yield* VoiceService.VoiceService;
       const previewManager = yield* PreviewManager.PreviewManager;
@@ -1602,6 +1604,24 @@ const makeWsRpcLayer = (
             {
               "rpc.aggregate": "source-control",
             },
+          ),
+        [WS_METHODS.subscribeProjectMemory]: (input) =>
+          observeRpcStreamEffect(
+            WS_METHODS.subscribeProjectMemory,
+            sharedProjectMemory.streamMemory(input.cwd),
+            { "rpc.aggregate": "memory" },
+          ),
+        [WS_METHODS.projectMemoryPin]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectMemoryPin,
+            sharedProjectMemory.pinEntry(input.cwd, input.key),
+            { "rpc.aggregate": "memory" },
+          ),
+        [WS_METHODS.projectMemoryDelete]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectMemoryDelete,
+            sharedProjectMemory.deleteEntry(input.cwd, input.key),
+            { "rpc.aggregate": "memory" },
           ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(

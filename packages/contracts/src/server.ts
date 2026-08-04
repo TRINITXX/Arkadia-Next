@@ -111,6 +111,17 @@ export const SharedMemorySnapshot = Schema.Struct({
 });
 export type SharedMemorySnapshot = typeof SharedMemorySnapshot.Type;
 
+export const ProjectMemorySubscribeInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ProjectMemorySubscribeInput = typeof ProjectMemorySubscribeInput.Type;
+
+export const ProjectMemoryMutateInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  key: TrimmedNonEmptyString,
+});
+export type ProjectMemoryMutateInput = typeof ProjectMemoryMutateInput.Type;
+
 /**
  * Availability of a configured provider instance from the runtime's POV.
  *
