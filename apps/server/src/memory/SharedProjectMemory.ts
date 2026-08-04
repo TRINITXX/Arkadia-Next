@@ -76,8 +76,17 @@ export const make = Effect.gen(function* () {
         maxBytes: MAX_SHARED_MEMORY_BYTES,
       });
 
-      yield* fs.makeDirectory(storeDir, { recursive: true }).pipe(Effect.orDie);
-      yield* fs.writeFileString(path.join(storeDir, "MEMORY.md"), markdown).pipe(Effect.orDie);
+      // Persisting the canonical digest is best-effort: memory augmentation must
+      // never block or crash a turn, so a write failure (full/read-only disk,
+      // permissions) degrades to a logged warning while `refresh` still returns
+      // the freshly aggregated snapshot. `Effect.catch` recovers the error
+      // channel here (it would NOT catch a defect, so we must not `orDie`).
+      yield* Effect.gen(function* () {
+        yield* fs.makeDirectory(storeDir, { recursive: true });
+        yield* fs.writeFileString(path.join(storeDir, "MEMORY.md"), markdown);
+      }).pipe(
+        Effect.catch((cause) => Effect.logWarning(`shared memory store write skipped: ${cause}`)),
+      );
 
       // The workspace junction is a convenience for providers that only read
       // local files; losing it must never fail the refresh itself.
