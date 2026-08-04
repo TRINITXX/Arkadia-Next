@@ -188,6 +188,12 @@ export interface GitRemoteStatusOptions {
   readonly refreshUpstream?: boolean;
 }
 
+export interface GitDeleteBranchInput {
+  readonly cwd: string;
+  readonly branch: string;
+  readonly force?: boolean;
+}
+
 export class GitVcsDriver extends Context.Service<
   GitVcsDriver,
   {
@@ -256,6 +262,7 @@ export class GitVcsDriver extends Context.Service<
     readonly renameBranch: (
       input: GitRenameBranchInput,
     ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;
+    readonly deleteBranch: (input: GitDeleteBranchInput) => Effect.Effect<void, GitCommandError>;
     readonly createRef: (
       input: VcsCreateRefInput,
     ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;

@@ -1250,6 +1250,24 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
     );
   });
 
+  describe("branch deletion", () => {
+    it.effect("deletes a merged branch", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* driver.createRef({ cwd, refName: "feature/done" });
+        // feature/done points at the same commit as the base → safe (-d) delete
+        yield* driver.deleteBranch({ cwd, branch: "feature/done" });
+
+        const branches = yield* git(cwd, ["branch", "--format=%(refname:short)"]);
+        assert.equal(branches.includes("feature/done"), false);
+        assert.equal(branches.includes(initialBranch), true);
+      }),
+    );
+  });
+
   describe("remote operations", () => {
     it.effect("ensureRemote reuses an existing remote across ssh/https transport variants", () =>
       Effect.gen(function* () {

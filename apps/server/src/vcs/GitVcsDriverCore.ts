@@ -2740,6 +2740,17 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return { branch: targetBranch };
   });
 
+  const deleteBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteBranch"] = Effect.fn(
+    "deleteBranch",
+  )(function* (input) {
+    yield* executeGit(
+      "GitVcsDriver.deleteBranch",
+      input.cwd,
+      ["branch", input.force ? "-D" : "-d", "--", input.branch],
+      { timeoutMs: 10_000, fallbackErrorDetail: "git branch delete failed" },
+    );
+  });
+
   const switchRef: GitVcsDriver.GitVcsDriver["Service"]["switchRef"] = Effect.fn("switchRef")(
     function* (input) {
       const [localInputExists, remoteExists] = yield* Effect.all(
@@ -2918,6 +2929,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     setBranchUpstream: (input) => withListRefsInvalidation(input.cwd, setBranchUpstream(input)),
     removeWorktree: (input) => withListRefsInvalidation(input.cwd, removeWorktree(input)),
     renameBranch: (input) => withListRefsInvalidation(input.cwd, renameBranch(input)),
+    deleteBranch: (input) => withListRefsInvalidation(input.cwd, deleteBranch(input)),
     createRef: (input) => withListRefsInvalidation(input.cwd, createRef(input)),
     switchRef: (input) => withListRefsInvalidation(input.cwd, switchRef(input)),
     initRepo: initRepoWithListRefsInvalidation,
