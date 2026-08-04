@@ -33,6 +33,8 @@ const clientSettings: ClientSettings = {
   sidebarV2Enabled: false,
   sidebarV2ConfiguredByUser: false,
   timestampFormat: "24-hour",
+  toolbarButtons: [],
+  promptButtons: [],
   wordWrap: true,
 };
 
