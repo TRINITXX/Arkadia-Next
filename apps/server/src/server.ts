@@ -63,6 +63,7 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "./project/T3ProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
+import * as SharedProjectMemory from "./memory/SharedProjectMemory.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
@@ -374,6 +375,10 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolver.layer),
+  // Resolved once per turn at the ProviderService sendTurn chokepoint; needs
+  // ServerConfig, FileSystem, Path from the core runtime chain (see
+  // WorkspaceFileSystemLayerLive above for the same pattern).
+  Layer.provideMerge(SharedProjectMemory.layer),
   Layer.provideMerge(ServerEnvironment.layer),
   Layer.provideMerge(AuthLayerLive),
   Layer.provideMerge(ServerSecretStore.layer),
