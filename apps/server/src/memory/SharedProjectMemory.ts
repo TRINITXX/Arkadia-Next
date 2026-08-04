@@ -17,9 +17,36 @@ import type { SharedMemorySnapshot } from "@t3tools/contracts";
 import { ensureSharedMemoryLink } from "./linkSharedMemory.ts";
 import * as ProjectMemoryPaths from "./ProjectMemoryPaths.ts";
 import { aggregateSharedMemory, type RawMemoryRecord } from "./SharedMemoryAggregation.ts";
-import { collectSourceDirs } from "./SharedMemorySources.ts";
+import { collectSourceDirs, type SharedMemorySource } from "./SharedMemorySources.ts";
 
 const MAX_SHARED_MEMORY_BYTES = 16_384;
+
+// One sentence, appended (never counted against MAX_SHARED_MEMORY_BYTES,
+// which budgets aggregated *entries* only) to every digest so it rides the
+// injection to every provider, including a brand-new project with zero
+// entries yet -- that is the case where a provider most needs to learn how
+// to contribute. Providers with no native memory of their own (Cursor, Grok,
+// OpenCode, ...) can still edit a file, so `.agents/notes.md` is a uniform
+// write-back target any of them can append a bullet to.
+const NOTES_TRAILER =
+  "To record a durable fact visible to every AI tool in this project, append one bullet to .agents/notes.md.";
+
+/**
+ * Splits the contents of the shared `.agents/notes.md` write-back file into
+ * one record per non-empty line, stripping a leading `- `/`* ` bullet
+ * marker if present. Line-based (not paragraph-based): matches how the
+ * file is documented and seeded elsewhere (one bullet per line), and keeps
+ * a provider's raw, unmarked line ("Fact one") equally valid to a markdown
+ * bullet ("- Fact one") -- either just becomes one record's `text`.
+ * Pure and exported so it can be exercised without the Effect FileSystem
+ * service (see the task report for a standalone `node` check).
+ */
+export function splitNotesFileText(text: string): ReadonlyArray<string> {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^[-*]\s+/, ""))
+    .filter((line) => line.length > 0);
+}
 
 // Watch events fire before the writer has finished flushing content to disk
 // (same reasoning as serverSettings.ts's settings-file watcher), so debounce
@@ -97,7 +124,7 @@ export const make = Effect.gen(function* () {
     });
 
   // Read every *.md file under a source dir into RawMemoryRecord[] (missing dir -> []).
-  const readSource = (provider: string, dir: string) =>
+  const readDirSource = (provider: string, dir: string) =>
     Effect.gen(function* () {
       const exists = yield* fs.exists(dir).pipe(Effect.orElseSucceed(() => false));
       if (!exists) return [] as ReadonlyArray<RawMemoryRecord>;
@@ -110,18 +137,62 @@ export const make = Effect.gen(function* () {
       );
     });
 
+  // Read a single-file source (currently only the shared `.agents/notes.md`
+  // write-back target) into RawMemoryRecord[] (missing file -> []): one
+  // record per non-empty line via `splitNotesFileText`, all sharing the
+  // file's own mtime as `updatedAtMs` (there is no per-line timestamp).
+  const readFileSource = (provider: string, filePath: string) =>
+    Effect.gen(function* () {
+      const exists = yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => false));
+      if (!exists) return [] as ReadonlyArray<RawMemoryRecord>;
+
+      const text = yield* fs.readFileString(filePath).pipe(Effect.orElseSucceed(() => ""));
+      const info = yield* fs.stat(filePath).pipe(Effect.option);
+      const updatedAtMs = info.pipe(
+        Option.flatMap((fileInfo) => fileInfo.mtime),
+        Option.map((mtime) => mtime.getTime()),
+        Option.getOrElse(() => 0),
+      );
+
+      return splitNotesFileText(text).map(
+        (line): RawMemoryRecord => ({ provider, path: filePath, text: line, updatedAtMs }),
+      );
+    });
+
+  // Dispatches a source to the dir- or file-shaped reader per its `kind`
+  // (Task 11 generalizes the original dir-only `readSource`).
+  const readSource = (source: SharedMemorySource) =>
+    source.kind === "file"
+      ? readFileSource(source.provider, source.dir)
+      : readDirSource(source.provider, source.dir);
+
   const refresh = (cwd: string) =>
     Effect.gen(function* () {
       const storeDir = yield* paths.resolveStoreDir(cwd);
       const sources = collectSourceDirs(cwd);
       const nested = yield* Effect.all(
-        sources.map((source) => readSource(source.provider, source.dir)),
+        sources.map((source) => readSource(source)),
         { concurrency: 4 },
       );
       const records = nested.flat();
-      const { markdown, entries } = aggregateSharedMemory(records, {
+      const { markdown: aggregatedMarkdown, entries } = aggregateSharedMemory(records, {
         maxBytes: MAX_SHARED_MEMORY_BYTES,
       });
+
+      // Append the write-back trailer to every digest, even an empty one --
+      // see `NOTES_TRAILER`'s comment for why "always" was chosen over
+      // "only when there's at least one entry". `entries` (the structured
+      // list persisted in the snapshot) stays clean; the trailer lives only
+      // in the rendered `markdown` string, which is what actually gets
+      // injected into every provider's context and persisted to
+      // `<storeDir>/MEMORY.md` below. That store path is excluded from
+      // `collectSourceDirs` by guardrail A, so the trailer (and the facts
+      // around it) can never be re-ingested as a source on the next
+      // `refresh` -- no feedback loop.
+      const markdown =
+        aggregatedMarkdown.length === 0
+          ? NOTES_TRAILER
+          : `${aggregatedMarkdown}\n${NOTES_TRAILER}`;
 
       // Persisting the canonical digest is best-effort: memory augmentation must
       // never block or crash a turn, so a write failure (full/read-only disk,
@@ -161,17 +232,27 @@ export const make = Effect.gen(function* () {
       return snapshot;
     });
 
-  // Debounced fs.watch loop for one existing source dir, forked into the
-  // storeDir's own child scope. Mirrors serverSettings.ts:511-548's settings
-  // watcher: `fs.watch` events fire before the writer has flushed content, so
-  // debounce before re-aggregating, and consume the stream with
-  // `Stream.runForEach` forked via `Effect.forkIn`.
-  const watchSourceDir = (cwd: string, dir: string, scope: Scope.Closeable) =>
-    Stream.runForEach(fs.watch(dir).pipe(Stream.debounce(WATCH_DEBOUNCE)), () =>
+  // Debounced fs.watch loop for one existing source path -- a dir (native
+  // per-provider memory) or a single file (the shared `.agents/notes.md`
+  // write-back target, Task 11) -- forked into the storeDir's own child
+  // scope. `fs.watch` accepts either a directory or a file path, so this is
+  // shared by both kinds without any branching. Mirrors
+  // serverSettings.ts:511-548's settings watcher: `fs.watch` events fire
+  // before the writer has flushed content, so debounce before
+  // re-aggregating, and consume the stream with `Stream.runForEach` forked
+  // via `Effect.forkIn`.
+  //
+  // Deliberately watches `notes.md` itself, never the parent `.agents/`
+  // dir: `.agents/` also contains the `memory` junction that `refresh`
+  // below writes through, so watching the directory would fire on our own
+  // writes and create a refresh -> write -> refresh feedback loop. Watching
+  // the file directly only reacts to edits to `notes.md` itself.
+  const watchSourcePath = (cwd: string, sourcePath: string, scope: Scope.Closeable) =>
+    Stream.runForEach(fs.watch(sourcePath).pipe(Stream.debounce(WATCH_DEBOUNCE)), () =>
       refresh(cwd).pipe(Effect.asVoid),
     ).pipe(
       // A watch loop dying should never take the process (or `read`) down
-      // with it -- log and let this one source dir simply stop being watched.
+      // with it -- log and let this one source path simply stop being watched.
       Effect.ignoreCause({ log: true }),
       Effect.forkIn(scope),
     );
@@ -188,17 +269,19 @@ export const make = Effect.gen(function* () {
       // Populates cacheRef for this storeDir; see the comment in `refresh`.
       yield* refresh(cwd);
 
-      // Only watch source dirs that exist right now. A source dir created
-      // later is picked up on the next process restart, not live -- re-arming
-      // would need its own watch on the parent dir to notice the child dir's
-      // creation, which is more machinery than this MVP needs (documented
-      // limitation, not implemented).
+      // Only watch source paths that exist right now -- dirs and the
+      // single-file `notes.md` source alike, `fs.exists` works on both. A
+      // source created later (a native memory dir, or a `notes.md` a
+      // provider hasn't written yet) is picked up on the next process
+      // restart, not live -- re-arming would need its own watch on the
+      // parent dir to notice the child's creation, which is more machinery
+      // than this MVP needs (documented limitation, not implemented).
       const sources = collectSourceDirs(cwd);
       const existingSources = yield* Effect.filter(sources, (source) =>
         fs.exists(source.dir).pipe(Effect.orElseSucceed(() => false)),
       );
 
-      yield* Effect.forEach(existingSources, (source) => watchSourceDir(cwd, source.dir, scope), {
+      yield* Effect.forEach(existingSources, (source) => watchSourcePath(cwd, source.dir, scope), {
         discard: true,
       });
     });

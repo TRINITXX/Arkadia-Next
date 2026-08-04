@@ -12,7 +12,12 @@ import * as NodePath from "node:path";
  */
 export interface SharedMemorySource {
   readonly provider: string;
+  /** Absolute path to the source: a directory of `*.md` files when `kind`
+   * is `"dir"`, or a single file to read directly when `kind` is `"file"`.
+   * The field keeps the name `dir` (not `path`) to minimize churn across
+   * the existing `SharedProjectMemory.ts` call sites. */
   readonly dir: string;
+  readonly kind: "dir" | "file";
 }
 
 export interface SharedMemorySourcesOptions {
@@ -73,7 +78,7 @@ export const collectSourceDirs = (
   const projectSlug = encodeClaudeProjectSlug(NodePath.resolve(workspaceRoot));
 
   const candidates: ReadonlyArray<SharedMemorySource> = [
-    { provider: "claude", dir: NodePath.join(workspaceRoot, ".claude", "memory") },
+    { provider: "claude", dir: NodePath.join(workspaceRoot, ".claude", "memory"), kind: "dir" },
     // GUARDRAIL B (critical): only this per-project subtree is included for
     // Claude's user (home) scope. A global, cross-project path such as
     // `<claudeConfigDir>/CLAUDE.md` or `<claudeConfigDir>/memory` must NEVER
@@ -82,8 +87,15 @@ export const collectSourceDirs = (
     {
       provider: "claude",
       dir: NodePath.join(claudeConfigDir, "projects", projectSlug, "memory"),
+      kind: "dir",
     },
-    { provider: "codex", dir: NodePath.join(codexHome, "memories") },
+    { provider: "codex", dir: NodePath.join(codexHome, "memories"), kind: "dir" },
+    // Uniform write-back target for providers with no native memory of
+    // their own (Cursor, Grok, OpenCode, ...): a single plain file any
+    // file-editing tool can append a bullet to. Deliberately NOT under
+    // `.agents/memory` (the junctioned canonical store) - see
+    // `isCanonicalStoreDir` below, which this path must never match.
+    { provider: "shared", dir: NodePath.join(workspaceRoot, ".agents", "notes.md"), kind: "file" },
   ];
 
   return candidates.filter((source) => !isCanonicalStoreDir(workspaceRoot, source.dir));

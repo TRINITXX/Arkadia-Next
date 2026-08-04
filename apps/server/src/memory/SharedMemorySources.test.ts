@@ -19,17 +19,32 @@ describe("collectSourceDirs", () => {
     expect(sources).toContainEqual({
       provider: "claude",
       dir: NodePath.join(WORKSPACE_ROOT, ".claude", "memory"),
+      kind: "dir",
     });
     expect(sources).toContainEqual({
       provider: "codex",
       dir: NodePath.join(CODEX_HOME, "memories"),
+      kind: "dir",
     });
     expect(sources.some((source) => source.provider === "claude" && source.dir.includes(NodePath.join("projects")))).toBe(
       true,
     );
   });
 
-  it("GUARDRAIL A: never returns the canonical junctioned store (<workspaceRoot>/.agents/memory)", () => {
+  it("returns the shared notes.md file source for providers with no native memory", () => {
+    const sources = collectSourceDirs(WORKSPACE_ROOT, {
+      claudeConfigDir: CLAUDE_CONFIG_DIR,
+      codexHome: CODEX_HOME,
+    });
+
+    expect(sources).toContainEqual({
+      provider: "shared",
+      dir: NodePath.join(WORKSPACE_ROOT, ".agents", "notes.md"),
+      kind: "file",
+    });
+  });
+
+  it("GUARDRAIL A: never returns the canonical junctioned store (<workspaceRoot>/.agents/memory), but keeps the distinct .agents/notes.md file source", () => {
     const sources = collectSourceDirs(WORKSPACE_ROOT, {
       claudeConfigDir: CLAUDE_CONFIG_DIR,
       codexHome: CODEX_HOME,
@@ -39,6 +54,9 @@ describe("collectSourceDirs", () => {
     for (const source of sources) {
       expect(NodePath.resolve(source.dir)).not.toEqual(storeDir);
     }
+
+    const notesFile = NodePath.resolve(WORKSPACE_ROOT, ".agents", "notes.md");
+    expect(sources.some((source) => NodePath.resolve(source.dir) === notesFile)).toBe(true);
   });
 
   it("GUARDRAIL B: never returns a global/cross-project claude path, only per-project subtrees", () => {

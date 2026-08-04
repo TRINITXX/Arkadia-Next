@@ -181,4 +181,112 @@ it.layer(TestLayer, { excludeTestServices: true })("SharedProjectMemory", (it) =
         yield* Scope.close(consumerScope, Exit.void);
       }),
   );
+
+  it.effect(
+    "reads .agents/notes.md as a shared write-back source, one entry per bullet, provider 'shared'",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const memory = yield* SharedProjectMemory.SharedProjectMemory;
+
+        const ws = yield* makeTempDir;
+        const agentsDir = path.join(ws, ".agents");
+        yield* fileSystem.makeDirectory(agentsDir, { recursive: true }).pipe(Effect.orDie);
+        // Seeded the way a provider with no native memory (Cursor, Grok,
+        // OpenCode, ...) would contribute: two plain markdown bullets in the
+        // uniform write-back file, NOT the junctioned `.agents/memory` store.
+        yield* fileSystem
+          .writeFileString(path.join(agentsDir, "notes.md"), "- Fact one\n- Fact two")
+          .pipe(Effect.orDie);
+
+        const digest = yield* memory.read(ws);
+        expect(digest).toContain("Fact one");
+        expect(digest).toContain("Fact two");
+
+        const snapshot = yield* memory.refresh(ws);
+        const sharedEntries = snapshot.entries.filter((entry) => entry.provider === "shared");
+        expect(sharedEntries.map((entry) => entry.text).sort()).toEqual(["Fact one", "Fact two"]);
+
+        // Every digest -- even one built entirely from `.agents/notes.md` --
+        // carries the one-sentence write-back trailer, so a provider reading
+        // it learns how to contribute without needing an existing entry to
+        // find the instruction next to.
+        expect(digest).toContain(
+          "To record a durable fact visible to every AI tool in this project, append one bullet to .agents/notes.md.",
+        );
+      }),
+  );
+
+  it.effect(
+    "injects the write-back trailer even for a brand-new project with an empty .agents/notes.md source",
+    () =>
+      Effect.gen(function* () {
+        const memory = yield* SharedProjectMemory.SharedProjectMemory;
+
+        const ws = yield* makeTempDir;
+
+        // No `.agents/notes.md` (or any other source) seeded for this fresh
+        // temp workspace: `readFileSource` treats the missing file as zero
+        // records, exactly like `readDirSource` treats a missing dir. The
+        // trailer must still ride along -- it is appended unconditionally
+        // in `refresh`, not gated on `entries.length > 0` -- so even a
+        // provider in a brand-new project learns how to contribute. (Not
+        // asserting the digest is *only* the trailer: `collectSourceDirs`'s
+        // other sources resolve against this machine's real home directory,
+        // e.g. `~/.codex/memories`, which may carry unrelated real content
+        // outside this test's control -- same reasoning as every other test
+        // in this file using `.toContain` rather than exact equality.)
+        const digest = yield* memory.read(ws);
+        expect(digest).toContain(
+          "To record a durable fact visible to every AI tool in this project, append one bullet to .agents/notes.md.",
+        );
+      }),
+  );
+
+  it.effect(
+    "keeps the cached snapshot current after a live filesystem watcher refresh on .agents/notes.md",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const memory = yield* SharedProjectMemory.SharedProjectMemory;
+
+        const ws = yield* makeTempDir;
+        const agentsDir = path.join(ws, ".agents");
+        yield* fileSystem.makeDirectory(agentsDir, { recursive: true }).pipe(Effect.orDie);
+        yield* fileSystem
+          .writeFileString(path.join(agentsDir, "notes.md"), "- First shared note.")
+          .pipe(Effect.orDie);
+
+        // First `read`: initial refresh + starts the debounced `fs.watch`
+        // loop directly over `.agents/notes.md` (Task 11 generalizes Task
+        // 8's watcher to file sources). A Cursor-style edit made after this
+        // point should show up live, without a manual `refresh` call.
+        const firstDigest = yield* memory.read(ws);
+        expect(firstDigest).toContain("First shared note.");
+
+        // Simulate a provider with no native memory appending a second
+        // bullet the way its normal file-editing tool would.
+        yield* fileSystem
+          .writeFileString(
+            path.join(agentsDir, "notes.md"),
+            "- First shared note.\n- Second shared note.",
+          )
+          .pipe(Effect.orDie);
+
+        // As in the existing Task 8/9 tests above, asserting on the real
+        // `fs.watch` timing would be flaky; exercise the exact code path the
+        // watcher loop runs on each debounced event (`refresh(cwd)`, the
+        // single place that writes `cacheRef`) to deterministically land the
+        // second note in the cache. The live end-to-end watch path (a real
+        // `fs.watch` event on `notes.md` debouncing into this same
+        // `refresh`) is covered by manual verification, not by this test.
+        yield* memory.refresh(ws);
+
+        const digestAfterWatcherRefresh = yield* memory.read(ws);
+        expect(digestAfterWatcherRefresh).toContain("First shared note.");
+        expect(digestAfterWatcherRefresh).toContain("Second shared note.");
+      }),
+  );
 });
