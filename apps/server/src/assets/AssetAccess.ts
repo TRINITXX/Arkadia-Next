@@ -5,6 +5,8 @@ import {
   AssetProjectFaviconInspectionError,
   AssetProjectFaviconNotFoundError,
   AssetProjectFaviconResolutionError,
+  AssetRecentFilePathValidationError,
+  AssetRecentFileRenderError,
   AssetSigningKeyLoadError,
   AssetWorkspaceAssetInspectionError,
   AssetWorkspaceAssetNotFoundError,
@@ -40,6 +42,11 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { resolveAttachmentPathById } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
+import {
+  renderRecentFileImage,
+  renderRecentFileThumbnail,
+  resolveListedRecentFile,
+} from "../recentFiles/RecentFileImages.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 
 export const ASSET_ROUTE_PREFIX = "/api/assets";
@@ -86,6 +93,16 @@ const AssetClaimsSchema = Schema.Union([
     kind: Schema.Literal("project-favicon"),
     workspaceRoot: Schema.String,
     relativePath: Schema.NullOr(Schema.String),
+    expiresAt: Schema.Number,
+  }),
+  // The recent-files picker resolves its rendition while the URL is minted, so
+  // the claims carry a path this server chose itself: either a file in the
+  // render cache or the listed image, both already validated. Nothing the
+  // client sends reaches the filesystem at request time.
+  Schema.Struct({
+    version: Schema.Literal(1),
+    kind: Schema.Literal("recent-file"),
+    filePath: Schema.String,
     expiresAt: Schema.Number,
   }),
 ]);
@@ -355,6 +372,30 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       }
       break;
     }
+    case "recent-file-thumbnail":
+    case "recent-file-image": {
+      const config = yield* ServerConfig.ServerConfig;
+      const listed = yield* resolveListedRecentFile(input.resource.path);
+      if (listed === null) {
+        return yield* new AssetRecentFilePathValidationError({ resource: input.resource });
+      }
+      const render =
+        input.resource._tag === "recent-file-thumbnail"
+          ? renderRecentFileThumbnail
+          : renderRecentFileImage;
+      const renderedPath = yield* render({
+        cacheDir: config.recentFilesCacheDir,
+        filePath: input.resource.path,
+        stat: listed,
+      }).pipe(
+        Effect.mapError(
+          (cause) => new AssetRecentFileRenderError({ resource: input.resource, cause }),
+        ),
+      );
+      claims = { version: 1, kind: "recent-file", filePath: renderedPath, expiresAt };
+      fileName = path.basename(renderedPath);
+      break;
+    }
   }
 
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -420,6 +461,24 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     );
     return Option.isSome(info) && info.value.type === "File"
       ? ({ kind: "file", path: attachmentPath } satisfies ResolvedAsset)
+      : null;
+  }
+
+  if (claims.kind === "recent-file") {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const info = yield* optionOnNotFound(fileSystem.stat(claims.filePath)).pipe(
+      Effect.tapError((cause) =>
+        Effect.logError("Failed to inspect a recent-file asset.", {
+          path: claims.filePath,
+          cause,
+        }),
+      ),
+      Effect.orElseSucceed(() => Option.none()),
+    );
+    // A render the cache has since been cleared of, or a photo deleted between
+    // the click and the fetch: the tile falls back to its icon.
+    return Option.isSome(info) && info.value.type === "File"
+      ? ({ kind: "file", path: claims.filePath } satisfies ResolvedAsset)
       : null;
   }
 

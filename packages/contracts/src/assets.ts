@@ -15,6 +15,16 @@ export const AssetResource = Schema.Union([
   Schema.TaggedStruct("project-favicon", {
     cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
   }),
+  // The composer's recent-files picker. Both resources take an absolute path on
+  // the environment host and are only ever issued for a file the picker itself
+  // listed — the server re-checks that the path sits directly inside one of the
+  // two watched folders, so a client cannot turn these into a read-any-file URL.
+  Schema.TaggedStruct("recent-file-thumbnail", {
+    path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+  }),
+  Schema.TaggedStruct("recent-file-image", {
+    path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+  }),
 ]);
 export type AssetResource = typeof AssetResource.Type;
 
@@ -168,6 +178,29 @@ export class AssetProjectFaviconNotFoundError extends Schema.TaggedErrorClass<As
   }
 }
 
+export class AssetRecentFilePathValidationError extends Schema.TaggedErrorClass<AssetRecentFilePathValidationError>()(
+  "AssetRecentFilePathValidationError",
+  {
+    resource: AssetResource,
+  },
+) {
+  override get message(): string {
+    return "Only images listed by the recent-files picker can be served.";
+  }
+}
+
+export class AssetRecentFileRenderError extends Schema.TaggedErrorClass<AssetRecentFileRenderError>()(
+  "AssetRecentFileRenderError",
+  {
+    resource: AssetResource,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Failed to render the recent file as a browser image.";
+  }
+}
+
 export class AssetSigningKeyLoadError extends Schema.TaggedErrorClass<AssetSigningKeyLoadError>()(
   "AssetSigningKeyLoadError",
   {
@@ -193,6 +226,8 @@ export const AssetAccessError = Schema.Union([
   AssetProjectFaviconResolutionError,
   AssetProjectFaviconInspectionError,
   AssetProjectFaviconNotFoundError,
+  AssetRecentFilePathValidationError,
+  AssetRecentFileRenderError,
   AssetSigningKeyLoadError,
 ]);
 export type AssetAccessError = typeof AssetAccessError.Type;

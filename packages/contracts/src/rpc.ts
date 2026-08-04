@@ -18,6 +18,7 @@ import {
   FilesystemBrowseResult,
   FilesystemBrowseError,
 } from "./filesystem.ts";
+import { RecentFilesError, RecentFilesSnapshot, RecentFilesSubscribeInput } from "./recentFiles.ts";
 import { AssetAccessError, AssetCreateUrlInput, AssetCreateUrlResult } from "./assets.ts";
 import {
   GitActionProgressEvent,
@@ -273,6 +274,7 @@ export const WS_METHODS = {
   subscribeAuthAccess: "subscribeAuthAccess",
   subscribeBackgroundPolicy: "subscribeBackgroundPolicy",
   subscribeResourceTelemetry: "subscribeResourceTelemetry",
+  subscribeRecentFiles: "subscribeRecentFiles",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -493,6 +495,20 @@ export const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
   payload: AssetCreateUrlInput,
   success: AssetCreateUrlResult,
   error: Schema.Union([AssetAccessError, EnvironmentAuthorizationError]),
+});
+
+/**
+ * Streams one folder of the composer's recent-files picker: the listing at
+ * subscription time, then a fresh one every time the folder changes. A
+ * screenshot taken while the panel is open has to show up on its own — the
+ * panel has no refresh affordance and reopening it to see a new file would
+ * defeat the point.
+ */
+export const WsSubscribeRecentFilesRpc = Rpc.make(WS_METHODS.subscribeRecentFiles, {
+  payload: RecentFilesSubscribeInput,
+  success: RecentFilesSnapshot,
+  error: Schema.Union([RecentFilesError, EnvironmentAuthorizationError]),
+  stream: true,
 });
 
 export const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
@@ -851,6 +867,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsAssetsCreateUrlRpc,
+  WsSubscribeRecentFilesRpc,
   WsSubscribeVcsStatusRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,

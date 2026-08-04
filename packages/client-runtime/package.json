@@ -87,6 +87,10 @@
       "types": "./src/state/projectGrouping.ts",
       "default": "./src/state/projectGrouping.ts"
     },
+    "./state/recent-files": {
+      "types": "./src/state/recentFiles.ts",
+      "default": "./src/state/recentFiles.ts"
+    },
     "./state/relay": {
       "types": "./src/state/relayDiscovery.ts",
       "default": "./src/state/relayDiscovery.ts"

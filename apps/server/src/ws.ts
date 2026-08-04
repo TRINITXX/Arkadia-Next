@@ -89,6 +89,7 @@ import * as VoiceService from "./voice/VoiceService.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import { issueAssetUrl } from "./assets/AssetAccess.ts";
+import * as RecentFiles from "./recentFiles/RecentFiles.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
@@ -1747,6 +1748,10 @@ const makeWsRpcLayer = (
             }),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.subscribeRecentFiles]: (input) =>
+          observeRpcStream(WS_METHODS.subscribeRecentFiles, RecentFiles.streamRecentFiles(input), {
+            "rpc.aggregate": "workspace",
+          }),
         [WS_METHODS.subscribeVcsStatus]: (input) =>
           observeRpcStream(
             WS_METHODS.subscribeVcsStatus,

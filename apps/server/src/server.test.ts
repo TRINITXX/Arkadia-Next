@@ -4858,6 +4858,33 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes the composer's recent-files subscription", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const first = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeRecentFiles]({ source: "downloads" }).pipe(
+            Stream.take(1),
+            Stream.runHead,
+            Effect.result,
+          ),
+        ),
+      );
+
+      // The folders belong to the host, so a machine without a downloads folder
+      // legitimately answers with a failure; what this guards is that the method
+      // is registered and typed end to end, not what this machine happens to own.
+      if (first._tag === "Failure") {
+        assert.equal(first.failure._tag, "RecentFilesError");
+        return;
+      }
+      const snapshot = Option.getOrThrow(first.success);
+      assert.equal(snapshot.source, "downloads");
+      assert.isAtMost(snapshot.entries.length, 10);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
+  );
+
   it.effect("reports workspace root stat failures without relabeling them as missing", () =>
     Effect.gen(function* () {
       if ((yield* HostProcessPlatform) === "win32") return;

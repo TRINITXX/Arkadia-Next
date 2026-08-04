@@ -17,7 +17,15 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
-export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
+/**
+ * Runtime mode every conversation starts in. Deliberately *not*
+ * `@t3tools/contracts`' `DEFAULT_RUNTIME_MODE`: that constant is the decoding
+ * default for payloads written before the field existed and must keep
+ * describing history ("full-access"), while this one is the app's choice for
+ * new threads. It is applied unconditionally — the mode a previous thread was
+ * switched to never carries over.
+ */
+export const DEFAULT_RUNTIME_MODE: RuntimeMode = "auto";
 
 export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;

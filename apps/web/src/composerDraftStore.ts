@@ -53,6 +53,7 @@ import { getDefaultServerModel } from "./providerModels";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
 const isRuntimeMode = Schema.is(RuntimeMode);
+const isProviderOptionSelection = Schema.is(ProviderOptionSelection);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 
@@ -235,6 +236,15 @@ const PersistedComposerDraftStoreState = Schema.Struct({
     Schema.Record(ProviderInstanceId, ModelSelection),
   ),
   stickyActiveProvider: Schema.optionalKey(Schema.NullOr(ProviderInstanceId)),
+  // Last option selections (reasoning effort, thinking, context window, …)
+  // the user picked *for one specific model*, keyed by
+  // `stickyModelOptionsKey(instanceId, model)`. `stickyModelSelectionByProvider`
+  // only remembers one bundle per provider instance, so without this map
+  // switching models inside a provider would hand the new model the previous
+  // one's effort. Absent for stores written before this field existed.
+  stickyModelOptionsByModel: Schema.optionalKey(
+    Schema.Record(Schema.String, Schema.Array(ProviderOptionSelection)),
+  ),
 });
 type PersistedComposerDraftStoreState = typeof PersistedComposerDraftStoreState.Type;
 
@@ -330,6 +340,11 @@ interface ComposerDraftStoreState {
   logicalProjectDraftThreadKeyByLogicalProjectKey: Record<string, string>;
   stickyModelSelectionByProvider: Partial<Record<ProviderInstanceId, ModelSelection>>;
   stickyActiveProvider: ProviderInstanceId | null;
+  /**
+   * Per-model memory of the option selections (reasoning effort, thinking,
+   * context window, …), keyed by `stickyModelOptionsKey`.
+   */
+  stickyModelOptionsByModel: Record<string, ReadonlyArray<ProviderOptionSelection>>;
   /** Returns the editable composer content for a draft session or server thread. */
   getComposerDraft: (target: ComposerThreadTarget) => ComposerThreadDraftState | null;
   /** Looks up the active draft session for a logical project identity. */
@@ -559,12 +574,34 @@ function compactModelSelectionByProvider(
   return Object.fromEntries(entries) as DeepMutable<Record<ProviderInstanceId, ModelSelection>>;
 }
 
+/**
+ * Identity of a model *within* a provider instance, used to key the per-model
+ * option memory. The separator cannot appear in either half: instance ids are
+ * slugs and model slugs are trimmed non-empty strings.
+ */
+export function stickyModelOptionsKey(instanceId: ProviderInstanceId, model: string): string {
+  return `${instanceId} ${model}`;
+}
+
+function compactStickyModelOptionsByModel(
+  optionsByModel: Record<string, ReadonlyArray<ProviderOptionSelection>>,
+): DeepMutable<Record<string, ReadonlyArray<ProviderOptionSelection>>> {
+  const entries: Array<[string, Array<DeepMutable<ProviderOptionSelection>>]> = [];
+  for (const [modelKey, options] of Object.entries(optionsByModel)) {
+    if (options && options.length > 0) {
+      entries.push([modelKey, options.map((option) => ({ ...option }))]);
+    }
+  }
+  return Object.fromEntries(entries);
+}
+
 const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftStoreState>({
   draftsByThreadKey: {},
   draftThreadsByThreadKey: {},
   logicalProjectDraftThreadKeyByLogicalProjectKey: {},
   stickyModelSelectionByProvider: {},
   stickyActiveProvider: null,
+  stickyModelOptionsByModel: {},
 });
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];
@@ -1920,7 +1957,27 @@ function partializeComposerDraftStoreState(
       state.stickyModelSelectionByProvider,
     ),
     stickyActiveProvider: state.stickyActiveProvider,
+    stickyModelOptionsByModel: compactStickyModelOptionsByModel(state.stickyModelOptionsByModel),
   };
+}
+
+function normalizeStickyModelOptionsByModel(
+  candidate: unknown,
+): Record<string, ReadonlyArray<ProviderOptionSelection>> {
+  if (!candidate || typeof candidate !== "object") {
+    return {};
+  }
+  const normalized: Record<string, ReadonlyArray<ProviderOptionSelection>> = {};
+  for (const [modelKey, options] of Object.entries(candidate as Record<string, unknown>)) {
+    if (modelKey.length === 0 || !Array.isArray(options)) {
+      continue;
+    }
+    const selections = options.filter(isProviderOptionSelection);
+    if (selections.length > 0) {
+      normalized[modelKey] = selections;
+    }
+  }
+  return normalized;
 }
 
 function normalizeCurrentPersistedComposerDraftStoreState(
@@ -1990,6 +2047,9 @@ function normalizeCurrentPersistedComposerDraftStoreState(
     logicalProjectDraftThreadKeyByLogicalProjectKey,
     stickyModelSelectionByProvider: compactModelSelectionByProvider(stickyModelSelectionByProvider),
     stickyActiveProvider,
+    stickyModelOptionsByModel: normalizeStickyModelOptionsByModel(
+      normalizedPersistedState.stickyModelOptionsByModel,
+    ),
   };
 }
 
@@ -2190,6 +2250,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         logicalProjectDraftThreadKeyByLogicalProjectKey: {},
         stickyModelSelectionByProvider: {},
         stickyActiveProvider: null,
+        stickyModelOptionsByModel: {},
         getComposerDraft: (target) => getComposerDraftState(get(), target),
         getDraftThreadByLogicalProjectKey: (logicalProjectKey) => {
           return get().getDraftSessionByLogicalProjectKey(logicalProjectKey);
@@ -2531,10 +2592,17 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 // the typed lookup.
                 const instanceKey = provider as ProviderInstanceId;
                 const current = nextMap[instanceKey];
-                nextMap[instanceKey] = {
-                  ...selection,
-                  model: current?.model ?? selection.model,
-                };
+                const model = current?.model ?? selection.model;
+                // The sticky bundle is per provider instance; when this exact
+                // model has its own remembered options they win, so a new
+                // thread reopens the model the way it was last used.
+                const remembered =
+                  state.stickyModelOptionsByModel[stickyModelOptionsKey(instanceKey, model)];
+                nextMap[instanceKey] = createModelSelection(
+                  instanceKey,
+                  model,
+                  remembered ?? selection.options,
+                );
               }
             }
             if (
@@ -2624,11 +2692,22 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 // selection as-is.
                 nextMap[normalized.instanceId] = normalized as ModelSelection;
               } else {
-                // No options in selection → preserve existing options, update provider+model
+                // No options in selection → update provider+model and, when
+                // the model actually changes, restore the bundle that model
+                // was last used with. Re-selecting the model already in the
+                // composer must not disturb its options, and a model never
+                // configured before keeps the current ones rather than
+                // silently dropping the effort the user just set.
+                const remembered =
+                  current?.model === normalized.model
+                    ? undefined
+                    : state.stickyModelOptionsByModel[
+                        stickyModelOptionsKey(normalized.instanceId, normalized.model)
+                      ];
                 nextMap[normalized.instanceId] = createModelSelection(
                   normalized.instanceId,
                   normalized.model,
-                  current?.options,
+                  remembered ?? current?.options,
                 );
               }
             }
@@ -2736,6 +2815,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             // Handle sticky persistence
             let nextStickyMap = state.stickyModelSelectionByProvider;
             let nextStickyActiveProvider = state.stickyActiveProvider;
+            let nextStickyOptionsByModel = state.stickyModelOptionsByModel;
             if (options?.persistSticky === true) {
               nextStickyMap = { ...state.stickyModelSelectionByProvider };
               const stickyBase =
@@ -2755,11 +2835,28 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextStickyActiveProvider = options.instanceId
                 ? instanceKey
                 : (base.activeProvider ?? instanceKey);
+              // Remember the bundle against the model it was actually chosen
+              // for — the one the traits menu was editing, not the sticky
+              // selection's model, which may point at another model entirely.
+              const editedModelKey = stickyModelOptionsKey(
+                instanceKey,
+                currentForProvider?.model ?? fallbackModel,
+              );
+              if (providerOpts) {
+                nextStickyOptionsByModel = {
+                  ...state.stickyModelOptionsByModel,
+                  [editedModelKey]: providerOpts,
+                };
+              } else if (state.stickyModelOptionsByModel[editedModelKey]) {
+                const { [editedModelKey]: _, ...rest } = state.stickyModelOptionsByModel;
+                nextStickyOptionsByModel = rest;
+              }
             }
 
             if (
               Equal.equals(base.modelSelectionByProvider, nextMap) &&
               Equal.equals(state.stickyModelSelectionByProvider, nextStickyMap) &&
+              Equal.equals(state.stickyModelOptionsByModel, nextStickyOptionsByModel) &&
               state.stickyActiveProvider === nextStickyActiveProvider
             ) {
               return state;
@@ -2783,6 +2880,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 ? {
                     stickyModelSelectionByProvider: nextStickyMap,
                     stickyActiveProvider: nextStickyActiveProvider,
+                    stickyModelOptionsByModel: nextStickyOptionsByModel,
                   }
                 : {}),
             };
@@ -3406,6 +3504,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             normalizedPersisted.logicalProjectDraftThreadKeyByLogicalProjectKey,
           stickyModelSelectionByProvider: normalizedPersisted.stickyModelSelectionByProvider ?? {},
           stickyActiveProvider: normalizedPersisted.stickyActiveProvider ?? null,
+          stickyModelOptionsByModel: normalizedPersisted.stickyModelOptionsByModel ?? {},
         };
       },
     },
