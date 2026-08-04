@@ -250,6 +250,64 @@ function buildContextWindowActivityPayload(
   return event.payload.usage;
 }
 
+type NormalizedRateLimitWindow = {
+  readonly key: "five_hour" | "seven_day";
+  readonly utilization: number;
+  readonly resetsAt: number | null;
+};
+
+// resetsAt arrives as an epoch value whose unit is provider-dependent (Claude's
+// SDK leaves it unspecified; Codex uses int64). Normalize to epoch milliseconds:
+// anything below ~1e12 is treated as seconds.
+function toEpochMs(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return value < 1e12 ? Math.round(value * 1000) : Math.round(value);
+}
+
+// Normalize the provider-specific rate-limit payload into a small canonical
+// shape the client can read uniformly. Claude reports ONE window per event
+// (`rate_limit_info` keyed by `rateLimitType`); Codex reports both at once as
+// `primary`/`secondary`. Only the five-hour and weekly (seven-day) windows are
+// surfaced. The activity payload is `Schema.Unknown`, so no contract change.
+function buildAccountRateLimitsActivityPayload(
+  event: ProviderRuntimeEvent,
+): { readonly windows: ReadonlyArray<NormalizedRateLimitWindow> } | undefined {
+  if (event.type !== "account.rate-limits.updated") return undefined;
+  const raw = event.payload.rateLimits;
+  if (!raw || typeof raw !== "object") return undefined;
+  const windows: NormalizedRateLimitWindow[] = [];
+
+  const claudeInfo = (raw as { rate_limit_info?: unknown }).rate_limit_info;
+  if (claudeInfo && typeof claudeInfo === "object") {
+    const info = claudeInfo as Record<string, unknown>;
+    const type = info.rateLimitType;
+    const key =
+      type === "five_hour"
+        ? ("five_hour" as const)
+        : type === "seven_day" || type === "seven_day_opus" || type === "seven_day_sonnet"
+          ? ("seven_day" as const)
+          : null;
+    if (key !== null && typeof info.utilization === "number") {
+      windows.push({ key, utilization: info.utilization, resetsAt: toEpochMs(info.resetsAt) });
+    }
+    return windows.length > 0 ? { windows } : undefined;
+  }
+
+  const pushCodexWindow = (value: unknown, fallbackKey: "five_hour" | "seven_day") => {
+    if (!value || typeof value !== "object") return;
+    const window = value as Record<string, unknown>;
+    if (typeof window.usedPercent !== "number") return;
+    const durationMins =
+      typeof window.windowDurationMins === "number" ? window.windowDurationMins : null;
+    const key: "five_hour" | "seven_day" =
+      durationMins !== null ? (durationMins <= 600 ? "five_hour" : "seven_day") : fallbackKey;
+    windows.push({ key, utilization: window.usedPercent, resetsAt: toEpochMs(window.resetsAt) });
+  };
+  pushCodexWindow((raw as { primary?: unknown }).primary, "five_hour");
+  pushCodexWindow((raw as { secondary?: unknown }).secondary, "seven_day");
+  return windows.length > 0 ? { windows } : undefined;
+}
+
 function normalizeRuntimeTurnState(
   value: string | undefined,
 ): "completed" | "failed" | "interrupted" | "cancelled" {
@@ -607,6 +665,26 @@ export function runtimeEventToActivities(
           tone: "info",
           kind: "context-window.updated",
           summary: "Context window updated",
+          payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "account.rate-limits.updated": {
+      const payload = buildAccountRateLimitsActivityPayload(event);
+      if (!payload) {
+        return [];
+      }
+
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "account.rate-limits.updated",
+          summary: "Account rate limits updated",
           payload,
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

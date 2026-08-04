@@ -109,6 +109,8 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
+import { AccountQuotaMeter } from "./AccountQuotaMeter";
+import { deriveAccountRateLimits } from "~/lib/accountRateLimits";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -370,6 +372,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
+  activeAccountQuota: ReturnType<typeof deriveAccountRateLimits>;
   activeThreadProviderDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
@@ -400,6 +403,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
           providerDisplayName={props.activeThreadProviderDisplayName}
         />
       ) : null}
+      {props.activeAccountQuota ? <AccountQuotaMeter quota={props.activeAccountQuota} /> : null}
       {props.isPreparingWorktree ? (
         <span className="text-muted-foreground/70 text-xs">Preparing worktree...</span>
       ) : null}
@@ -894,6 +898,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
+    [activeThreadActivities],
+  );
+  const activeAccountQuota = useMemo(
+    () => deriveAccountRateLimits(activeThreadActivities ?? []),
     [activeThreadActivities],
   );
   const activeThreadProviderDisplayName = useMemo(() => {
@@ -3495,6 +3503,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
                   activeContextWindow={activeContextWindow}
+                  activeAccountQuota={activeAccountQuota}
                   activeThreadProviderDisplayName={activeThreadProviderDisplayName}
                   pendingAction={pendingPrimaryAction}
                   isRunning={phase === "running"}
