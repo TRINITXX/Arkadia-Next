@@ -3,14 +3,19 @@ import { EventId, type OrchestrationThreadActivity, TurnId } from "@t3tools/cont
 
 import { deriveLatestContextWindowSnapshot, formatContextWindowTokens } from "./contextWindow";
 
-function makeActivity(id: string, kind: string, payload: unknown): OrchestrationThreadActivity {
+function makeActivity(
+  id: string,
+  kind: string,
+  payload: unknown,
+  turnId = "turn-1",
+): OrchestrationThreadActivity {
   return {
     id: EventId.make(id),
     tone: "info",
     kind,
     summary: kind,
     payload,
-    turnId: TurnId.make("turn-1"),
+    turnId: TurnId.make(turnId),
     createdAt: "2026-03-23T00:00:00.000Z",
   };
 }
@@ -34,6 +39,21 @@ describe("contextWindow", () => {
     expect(snapshot?.totalProcessedTokens).toBeNull();
     expect(snapshot?.maxTokens).toBe(258_000);
     expect(snapshot?.compactsAutomatically).toBe(true);
+  });
+
+  it("captures the turn the latest snapshot belongs to", () => {
+    const snapshot = deriveLatestContextWindowSnapshot([
+      makeActivity("activity-1", "context-window.updated", { usedTokens: 1000 }, "turn-1"),
+      makeActivity(
+        "activity-2",
+        "context-window.updated",
+        { usedTokens: 2000, outputTokens: 512 },
+        "turn-2",
+      ),
+    ]);
+
+    expect(snapshot?.turnId).toBe("turn-2");
+    expect(snapshot?.outputTokens).toBe(512);
   });
 
   it("ignores malformed payloads", () => {

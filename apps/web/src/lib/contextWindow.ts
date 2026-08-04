@@ -23,6 +23,8 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly usedPercentage: number | null;
   readonly remainingPercentage: number | null;
   readonly updatedAt: string;
+  /** Turn this snapshot belongs to, so callers can scope it to the active turn. */
+  readonly turnId: string | null;
 };
 
 /** Map a provider driver kind to a user-facing display name. */
@@ -89,6 +91,7 @@ export function deriveLatestContextWindowSnapshot(
       durationMs: asFiniteNumber(payload?.durationMs),
       compactsAutomatically: asBoolean(payload?.compactsAutomatically) ?? false,
       updatedAt: activity.createdAt,
+      turnId: activity.turnId ?? null,
     };
   }
 

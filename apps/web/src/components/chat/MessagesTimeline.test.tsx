@@ -43,7 +43,9 @@ vi.mock("@legendapp/list/react", async () => {
   }) => {
     if (props.anchoredEndSpace) {
       props.anchoredEndSpace.onSizeChanged?.(240);
-      props.anchoredEndSpace.onReady?.({ anchorIndex: props.anchoredEndSpace.anchorIndex });
+      props.anchoredEndSpace.onReady?.({
+        anchorIndex: props.anchoredEndSpace.anchorIndex,
+      });
     }
     return (
       <div
@@ -175,6 +177,7 @@ function buildProps() {
     isWorking: false,
     activeTurnInProgress: false,
     activeTurnStartedAt: null,
+    activeTurnOutputTokens: null,
     listRef: createRef<LegendListRef | null>(),
     latestTurn: null,
     runningTurnId: null,
@@ -239,6 +242,37 @@ describe("MessagesTimeline", () => {
     expect(fadedMarkup).toContain("chat-timeline-scroll-fade");
   });
 
+  it("shows the live output-token count next to the working indicator", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
+        activeTurnOutputTokens={2100}
+        timelineEntries={[]}
+      />,
+    );
+
+    expect(markup).toContain("↑ 2.1k");
+  });
+
+  it("omits the token count while working with no output tokens yet", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
+        activeTurnOutputTokens={null}
+        timelineEntries={[]}
+      />,
+    );
+
+    expect(markup).toContain("Working for");
+    expect(markup).not.toContain("↑");
+  });
+
   it("keeps assistant changed-files headers sticky below the thread header", () => {
     const assistantMessageId = MessageId.make("message-assistant-with-files");
     const turnId = TurnId.make("turn-with-files");
@@ -276,7 +310,14 @@ describe("MessagesTimeline", () => {
                 checkpointTurnCount: 1,
                 checkpointRef: CheckpointRef.make("checkpoint-with-files"),
                 status: "ready",
-                files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
+                files: [
+                  {
+                    path: "README.md",
+                    kind: "modified",
+                    additions: 2,
+                    deletions: 1,
+                  },
+                ],
                 assistantMessageId,
                 completedAt: MESSAGE_CREATED_AT,
               },
