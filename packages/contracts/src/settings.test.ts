@@ -91,6 +91,59 @@ describe("ClientSettings glass opacity", () => {
   });
 });
 
+describe("ClientSettings appearance theme and fonts", () => {
+  it("defaults content palette, chrome background, and fonts to the Arkadia look", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.contentPaletteId).toBe("wez");
+    expect(decoded.customContentPalette).toEqual({ bg: "#0a0a0a", fg: "#fafafa" });
+    expect(decoded.chromeBackgroundId).toBe("noir");
+    expect(decoded.agentFontSize).toBe(15);
+    expect(decoded.terminalFontSize).toBe(14);
+    expect(decoded.terminalFontFamily).toContain("Maple Mono NF");
+  });
+
+  it("accepts each content palette and chrome background preset", () => {
+    for (const id of [
+      "wez",
+      "wezterm",
+      "dracula",
+      "solarized-dark",
+      "tokyo-night",
+      "arkadia",
+      "custom",
+    ] as const) {
+      expect(decodeClientSettingsPatch({ contentPaletteId: id }).contentPaletteId).toBe(id);
+    }
+    for (const id of [
+      "noir",
+      "midnight",
+      "slate",
+      "graphite",
+      "ocean",
+      "violet",
+      "forest",
+      "bordeaux",
+    ] as const) {
+      expect(decodeClientSettingsPatch({ chromeBackgroundId: id }).chromeBackgroundId).toBe(id);
+    }
+  });
+
+  it("rejects unknown palette or background presets", () => {
+    expect(() => decodeClientSettings({ contentPaletteId: "neon" })).toThrow();
+    expect(() => decodeClientSettings({ chromeBackgroundId: "sunset" })).toThrow();
+  });
+
+  it.each([11, 25])("rejects an agent font size outside 12..24: %s", (value) => {
+    expect(() => decodeClientSettings({ agentFontSize: value })).toThrow();
+    expect(() => decodeClientSettingsPatch({ agentFontSize: value })).toThrow();
+  });
+
+  it.each([5, 33])("rejects a terminal font size outside 6..32: %s", (value) => {
+    expect(() => decodeClientSettings({ terminalFontSize: value })).toThrow();
+    expect(() => decodeClientSettingsPatch({ terminalFontSize: value })).toThrow();
+  });
+});
+
 describe("ClientSettings environment identification", () => {
   it("defaults to artwork and accepts each presentation mode", () => {
     expect(decodeClientSettings({}).environmentIdentificationMode).toBe("artwork");

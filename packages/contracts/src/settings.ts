@@ -63,6 +63,76 @@ export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill",
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
 
+// ── Appearance: content theme (agent thread + terminal) ─────────
+// Terminal palettes ported from Arkadia. Only background/foreground/cursor are
+// applied (the 16 ANSI colors are resolved inside the ghostty WASM and cannot be
+// swapped from JS). "arkadia" tracks Arkadia-Next's own current dark surface.
+export const ContentPaletteId = Schema.Literals([
+  "wez",
+  "wezterm",
+  "dracula",
+  "solarized-dark",
+  "tokyo-night",
+  "arkadia",
+  "custom",
+]);
+export type ContentPaletteId = typeof ContentPaletteId.Type;
+export const DEFAULT_CONTENT_PALETTE_ID: ContentPaletteId = "wez";
+
+// Wez preset background/foreground — also the seed for the custom palette.
+export const DEFAULT_CONTENT_PALETTE_BG = "#0a0a0a";
+export const DEFAULT_CONTENT_PALETTE_FG = "#fafafa";
+
+// Kept permissive (plain strings) so an invalid hand-edited hex never fails to
+// decode the whole settings blob; the UI validates before writing.
+export const CustomContentPalette = Schema.Struct({
+  bg: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CONTENT_PALETTE_BG))),
+  fg: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_CONTENT_PALETTE_FG))),
+});
+export type CustomContentPalette = typeof CustomContentPalette.Type;
+export const DEFAULT_CUSTOM_CONTENT_PALETTE: CustomContentPalette = Schema.decodeSync(
+  CustomContentPalette,
+)({});
+
+// ── Appearance: chrome background (frosted-glass presets) ───────
+// 8 gradient presets ported from Arkadia. "noir" is the current opaque look; the
+// gradients + glass are applied in dark mode only.
+export const ChromeBackgroundId = Schema.Literals([
+  "noir",
+  "midnight",
+  "slate",
+  "graphite",
+  "ocean",
+  "violet",
+  "forest",
+  "bordeaux",
+]);
+export type ChromeBackgroundId = typeof ChromeBackgroundId.Type;
+export const DEFAULT_CHROME_BACKGROUND_ID: ChromeBackgroundId = "noir";
+
+// ── Appearance: fonts per view ─────────────────────────────────
+export const DEFAULT_AGENT_FONT_FAMILY =
+  '"DM Sans Variable", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+export const MIN_AGENT_FONT_SIZE = 12;
+export const MAX_AGENT_FONT_SIZE = 24;
+export const AgentFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_AGENT_FONT_SIZE, maximum: MAX_AGENT_FONT_SIZE }),
+);
+export type AgentFontSize = typeof AgentFontSize.Type;
+export const DEFAULT_AGENT_FONT_SIZE: AgentFontSize = 15;
+
+// Default terminal font mirrors Arkadia (Maple Mono NF, size 14), falling back to
+// the bundled Cascadia Code metrics font then system monospaces.
+export const DEFAULT_TERMINAL_FONT_FAMILY =
+  '"Maple Mono NF", "Maple Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace';
+export const MIN_TERMINAL_FONT_SIZE = 6;
+export const MAX_TERMINAL_FONT_SIZE = 32;
+export const TerminalFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_TERMINAL_FONT_SIZE, maximum: MAX_TERMINAL_FONT_SIZE }),
+);
+export type TerminalFontSize = typeof TerminalFontSize.Type;
+export const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 14;
+
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -79,6 +149,30 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  // Appearance — content theme (agent thread + terminal).
+  contentPaletteId: ContentPaletteId.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CONTENT_PALETTE_ID)),
+  ),
+  customContentPalette: CustomContentPalette.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CUSTOM_CONTENT_PALETTE)),
+  ),
+  // Appearance — chrome background (frosted-glass presets, dark mode only).
+  chromeBackgroundId: ChromeBackgroundId.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHROME_BACKGROUND_ID)),
+  ),
+  // Appearance — fonts per view.
+  agentFontFamily: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_FONT_FAMILY)),
+  ),
+  agentFontSize: AgentFontSize.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_FONT_SIZE)),
+  ),
+  terminalFontFamily: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_FONT_FAMILY)),
+  ),
+  terminalFontSize: TerminalFontSize.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_FONT_SIZE)),
   ),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
@@ -693,6 +787,13 @@ export const ClientSettingsPatch = Schema.Struct({
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  contentPaletteId: Schema.optionalKey(ContentPaletteId),
+  customContentPalette: Schema.optionalKey(CustomContentPalette),
+  chromeBackgroundId: Schema.optionalKey(ChromeBackgroundId),
+  agentFontFamily: Schema.optionalKey(Schema.String),
+  agentFontSize: Schema.optionalKey(AgentFontSize),
+  terminalFontFamily: Schema.optionalKey(Schema.String),
+  terminalFontSize: Schema.optionalKey(TerminalFontSize),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
