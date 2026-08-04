@@ -256,6 +256,123 @@ it.effect("merges cleanly, removes the worktree, deletes the branch, and archive
   }).pipe(Effect.provide(GitVcsDriverTestLayer)),
 );
 
+// Regression test: base ≠ the main tree's checked-out branch, so advanceBase
+// takes the fastForwardBranch else-branch (it fast-forwards `base` without
+// moving the main tree's HEAD). finalize's deleteBranch call must not rely
+// on `-d`'s "merged into HEAD" check in that case — HEAD (the main tree's
+// checkout) never moves, only `base` does, so `-d` would see the branch as
+// unmerged even though it's fully contained in `base`.
+it.effect("finalizes when the base is not the main tree's checked-out branch", () =>
+  Effect.gen(function* () {
+    const cwd = yield* makeTmpDir("merge-cleanup-ff-repo-");
+    const { initialBranch } = yield* initRepoWithCommit(cwd);
+
+    // Create `develop` off the base, then leave the main tree back on the
+    // base branch (not `develop`).
+    yield* git(cwd, ["checkout", "-b", "develop"]);
+    yield* git(cwd, ["checkout", initialBranch]);
+
+    const pathService = yield* Path.Path;
+    const worktreePath = pathService.join(
+      yield* makeTmpDir("merge-cleanup-ff-worktree-"),
+      "feature-x",
+    );
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+
+    // Create the worktree branch off `develop` — this writes
+    // branch.feature/x.gh-merge-base=develop.
+    yield* driver.createWorktree({
+      cwd,
+      refName: "develop",
+      newRefName: "feature/x",
+      baseRefName: "develop",
+      path: worktreePath,
+    });
+
+    // Commit feature work in the worktree.
+    yield* writeTextFile(worktreePath, "feature.txt", "feature work\n");
+    yield* git(worktreePath, ["add", "."]);
+    yield* git(worktreePath, ["commit", "-m", "feature commit"]);
+
+    // Advance `develop` by one unrelated commit so the merge is real, then
+    // leave the main tree checked out on the base branch (≠ develop) —
+    // this is what routes advanceBase into the fastForwardBranch else-branch.
+    yield* git(cwd, ["checkout", "develop"]);
+    yield* writeTextFile(cwd, "develop-base.txt", "develop base change\n");
+    yield* git(cwd, ["add", "."]);
+    yield* git(cwd, ["commit", "-m", "develop base commit"]);
+    yield* git(cwd, ["checkout", initialBranch]);
+
+    const threadId = ThreadId.make("thread-merge-cleanup-ff-1");
+    const projectId = ProjectId.make("project-merge-cleanup-ff-1");
+    const now = "2026-08-04T00:00:00.000Z";
+
+    const thread = {
+      id: threadId,
+      projectId,
+      title: "Merge cleanup thread (base != HEAD)",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "feature/x",
+      worktreePath,
+      latestTurn: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      session: null,
+      latestUserMessageAt: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    } satisfies OrchestrationThreadShell;
+
+    const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+
+    const serviceLayer = MergeCleanupServiceLive.pipe(
+      Layer.provide(gitWorkflowTestLayer),
+      Layer.provide(
+        Layer.succeed(ProjectionSnapshotQuery, {
+          getThreadShellById: () => Effect.succeed(Option.some(thread)),
+        } as unknown as ProjectionSnapshotQueryShape),
+      ),
+      Layer.provide(
+        Layer.succeed(OrchestrationEngineService, {
+          dispatch: (command: OrchestrationCommand) =>
+            Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+              Effect.as({ sequence: 1 }),
+            ),
+        } as unknown as OrchestrationEngineShape),
+      ),
+    );
+
+    const result = yield* Effect.gen(function* () {
+      const service = yield* MergeCleanupService;
+      return yield* service.attempt({ threadId, workspaceRoot: cwd });
+    }).pipe(Effect.provide(serviceLayer));
+
+    assert.equal(result.outcome, "completed");
+
+    const developLog = yield* git(cwd, ["log", "develop", "--oneline"]);
+    assert.equal(developLog.includes("feature commit"), true);
+
+    const fileSystem = yield* FileSystem.FileSystem;
+    assert.equal(yield* fileSystem.exists(worktreePath), false);
+
+    assert.equal((yield* git(cwd, ["branch", "--list", "feature/x"])).trim(), "");
+
+    const dispatchedCommands = yield* Ref.get(dispatched);
+    assert.equal(
+      dispatchedCommands.some(
+        (command) => command.type === "thread.archive" && command.threadId === threadId,
+      ),
+      true,
+    );
+  }).pipe(Effect.provide(GitVcsDriverTestLayer)),
+);
+
 // Arranges a repo + worktree branch that are guaranteed to conflict on
 // merge (both the base and the worktree branch edit README's single line),
 // plus the fake ProjectionSnapshotQuery / OrchestrationEngineService layers

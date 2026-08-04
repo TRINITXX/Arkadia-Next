@@ -159,7 +159,19 @@ const make = Effect.gen(function* () {
         path: ctx.worktreePath,
         force: true,
       });
-      yield* gitWorkflow.deleteBranch({ cwd: ctx.workspaceRoot, branch: ctx.branch });
+      // `-d` (safe delete) checks whether the branch is merged into the
+      // *main tree's checked-out HEAD*, not into `ctx.base`. When base isn't
+      // what's checked out in the main tree, advanceBase just took the
+      // fastForwardBranch branch above: it advanced `base` without moving
+      // HEAD, so `-d` looks at the wrong ref and errors "not fully merged"
+      // even though the branch is fully contained in `base`. `-D` is safe
+      // here: advanceBase has already fast-forwarded/merged `base` to
+      // include every commit on `ctx.branch`, so nothing is lost.
+      yield* gitWorkflow.deleteBranch({
+        cwd: ctx.workspaceRoot,
+        branch: ctx.branch,
+        force: true,
+      });
       yield* orchestrationEngine.dispatch({
         type: "thread.archive",
         commandId: yield* serverCommandId("merge-cleanup-archive"),
