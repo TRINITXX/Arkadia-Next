@@ -56,6 +56,8 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor.ts";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor.ts";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor.ts";
+import { MergeCleanupReactorLive } from "./orchestration/Layers/MergeCleanupReactor.ts";
+import { MergeCleanupServiceLive } from "./git/MergeCleanupService.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
@@ -218,6 +220,11 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(ThreadDeletionReactorLive),
+  // MergeCleanupServiceLive is merged here (once) so the reactor above and
+  // the WS handler (wired in a later task) both resolve the same singleton
+  // — its in-memory `pending` conflict map must be shared.
+  Layer.provideMerge(MergeCleanupReactorLive),
+  Layer.provideMerge(MergeCleanupServiceLive),
   Layer.provideMerge(AgentAwarenessRelay.layer.pipe(Layer.provide(ServerSecretStore.layer))),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
