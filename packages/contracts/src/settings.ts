@@ -457,6 +457,49 @@ export const GrokSettings = makeProviderSettingsSchema(
 );
 export type GrokSettings = typeof GrokSettings.Type;
 
+export const HermesSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    // The command spawned locally is the SSH client; the Hermes agent runs on
+    // the remote host and is reached over stdio (ACP JSON-RPC on stdout).
+    binaryPath: makeBinaryPathSetting("ssh").pipe(
+      Schema.annotateKey({
+        title: "SSH binary",
+        description: "Path to the local ssh client used to reach the Hermes host.",
+        providerSettingsForm: { placeholder: "ssh", clearWhenEmpty: "omit" },
+      }),
+    ),
+    sshTarget: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("root@37.27.176.67")),
+      Schema.annotateKey({
+        title: "SSH target",
+        description: "user@host of the VPS running the Hermes agent (ACP over SSH stdio).",
+        providerSettingsForm: { placeholder: "root@37.27.176.67", clearWhenEmpty: "omit" },
+      }),
+    ),
+    remoteBinaryPath: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("hermes")),
+      Schema.annotateKey({
+        title: "Remote Hermes binary",
+        description:
+          "Name or path of the hermes launcher on the remote host (resolved via login shell PATH).",
+        providerSettingsForm: { placeholder: "hermes", clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath", "sshTarget", "remoteBinaryPath"],
+  },
+);
+export type HermesSettings = typeof HermesSettings.Type;
+
 export const OpenCodeSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -625,6 +668,7 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    hermes: HermesSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
@@ -721,6 +765,14 @@ const GrokSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const HermesSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  sshTarget: Schema.optionalKey(TrimmedString),
+  remoteBinaryPath: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const OpenCodeSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -768,6 +820,7 @@ export const ServerSettingsPatch = Schema.Struct({
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
+      hermes: Schema.optionalKey(HermesSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),
   ),
