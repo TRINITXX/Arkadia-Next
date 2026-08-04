@@ -13,10 +13,19 @@ import * as Stream from "effect/Stream";
 import type { SharedMemorySnapshot } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectMemoryPaths from "./ProjectMemoryPaths.ts";
+import { contentKey } from "./SharedMemoryAggregation.ts";
 import * as SharedProjectMemory from "./SharedProjectMemory.ts";
 
 const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(SharedProjectMemory.layer),
+  // Merged independently (in addition to the copy `SharedProjectMemory.layer`
+  // already provides itself internally) so the "pin/delete persist to
+  // overrides.json" test below can resolve the same storeDir the service
+  // used, to read the file directly. `ProjectMemoryPaths.make` is a pure,
+  // stateless computation from `cwd` (git identity -> hash), so a second
+  // independent instance resolves identically -- no shared state to diverge.
+  Layer.provideMerge(ProjectMemoryPaths.layer),
   Layer.provide(
     ServerConfig.ServerConfig.layerTest(process.cwd(), {
       prefix: "t3-shared-memory-test-",
@@ -287,6 +296,62 @@ it.layer(TestLayer, { excludeTestServices: true })("SharedProjectMemory", (it) =
         const digestAfterWatcherRefresh = yield* memory.read(ws);
         expect(digestAfterWatcherRefresh).toContain("First shared note.");
         expect(digestAfterWatcherRefresh).toContain("Second shared note.");
+      }),
+  );
+
+  it.effect(
+    "deleteEntry tombstones a fact out of the digest; pinEntry persists a pin to overrides.json",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const memory = yield* SharedProjectMemory.SharedProjectMemory;
+        const paths = yield* ProjectMemoryPaths.ProjectMemoryPaths;
+
+        const ws = yield* makeTempDir;
+        const claudeMemoryDir = path.join(ws, ".claude", "memory");
+        yield* fileSystem
+          .makeDirectory(claudeMemoryDir, { recursive: true })
+          .pipe(Effect.orDie);
+        yield* fileSystem
+          .writeFileString(path.join(claudeMemoryDir, "fact-1.md"), "Deletable fact.")
+          .pipe(Effect.orDie);
+        yield* fileSystem
+          .writeFileString(path.join(claudeMemoryDir, "fact-2.md"), "Keeper fact.")
+          .pipe(Effect.orDie);
+
+        const beforeDigest = yield* memory.read(ws);
+        expect(beforeDigest).toContain("Deletable fact.");
+        expect(beforeDigest).toContain("Keeper fact.");
+
+        // `contentKey` is the same normalize-then-hash function the
+        // aggregator uses internally to key `SharedMemoryEntry.key` -- a
+        // caller (the future client UI) computes the key to delete/pin
+        // exactly this way, from an entry it already has in hand.
+        const deletableKey = contentKey("Deletable fact.");
+        yield* memory.deleteEntry(ws, deletableKey);
+
+        const afterDeleteDigest = yield* memory.read(ws);
+        expect(afterDeleteDigest).not.toContain("Deletable fact.");
+        expect(afterDeleteDigest).toContain("Keeper fact.");
+
+        const keeperKey = contentKey("Keeper fact.");
+        yield* memory.pinEntry(ws, keeperKey);
+
+        // Assert the overrides survive as on-disk state, not just as an
+        // in-memory effect of `deleteEntry`/`pinEntry` -- read
+        // `<storeDir>/overrides.json` directly, the same file `refresh`
+        // reads on every call.
+        const storeDir = yield* paths.resolveStoreDir(ws);
+        const overridesText = yield* fileSystem
+          .readFileString(path.join(storeDir, "overrides.json"))
+          .pipe(Effect.orDie);
+        const overrides = JSON.parse(overridesText) as {
+          pinnedKeys: ReadonlyArray<string>;
+          tombstonedKeys: ReadonlyArray<string>;
+        };
+        expect(overrides.pinnedKeys).toContain(keeperKey);
+        expect(overrides.tombstonedKeys).toContain(deletableKey);
       }),
   );
 });

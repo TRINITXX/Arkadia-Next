@@ -70,6 +70,8 @@ export class SharedProjectMemory extends Context.Service<
     readonly refresh: (cwd: string) => Effect.Effect<SharedMemorySnapshot>;
     readonly read: (cwd: string) => Effect.Effect<string>;
     readonly streamMemory: (cwd: string) => Effect.Effect<Stream.Stream<SharedMemorySnapshot>>;
+    readonly pinEntry: (cwd: string, key: string) => Effect.Effect<void>;
+    readonly deleteEntry: (cwd: string, key: string) => Effect.Effect<void>;
   }
 >()("t3/memory/SharedProjectMemory") {}
 
@@ -77,6 +79,40 @@ interface SharedMemoryUpdate {
   readonly storeDir: string;
   readonly snapshot: SharedMemorySnapshot;
 }
+
+/**
+ * User overrides persisted at `<storeDir>/overrides.json` -- entries the user
+ * explicitly pinned (exempt from size-eviction) or deleted (tombstoned, so a
+ * source that still contains them never resurfaces the entry). Keyed by the
+ * aggregator's `contentKey`, same as `SharedMemoryEntry["key"]`.
+ */
+interface MemoryOverrides {
+  readonly pinnedKeys: ReadonlyArray<string>;
+  readonly tombstonedKeys: ReadonlyArray<string>;
+}
+
+const EMPTY_OVERRIDES: MemoryOverrides = { pinnedKeys: [], tombstonedKeys: [] };
+
+const isStringArray = (value: unknown): value is ReadonlyArray<string> =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+// Defensive shape guard for the parsed JSON -- anything that isn't exactly
+// `{ pinnedKeys: string[]; tombstonedKeys: string[] }` is treated as absent
+// rather than partially trusted, so a hand-edited or half-written file can't
+// smuggle in a non-string key.
+const parseOverrides = (text: string): MemoryOverrides => {
+  const parsed: unknown = JSON.parse(text);
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !isStringArray((parsed as Record<string, unknown>).pinnedKeys) ||
+    !isStringArray((parsed as Record<string, unknown>).tombstonedKeys)
+  ) {
+    return EMPTY_OVERRIDES;
+  }
+  const record = parsed as { pinnedKeys: ReadonlyArray<string>; tombstonedKeys: ReadonlyArray<string> };
+  return { pinnedKeys: record.pinnedKeys, tombstonedKeys: record.tombstonedKeys };
+};
 
 export const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -166,6 +202,33 @@ export const make = Effect.gen(function* () {
       ? readFileSource(source.provider, source.dir)
       : readDirSource(source.provider, source.dir);
 
+  const overridesFilePath = (storeDir: string) => path.join(storeDir, "overrides.json");
+
+  // Reads `<storeDir>/overrides.json` defensively: a missing file, an
+  // unreadable file, or malformed/mis-shaped JSON all degrade to
+  // `EMPTY_OVERRIDES` rather than crashing a turn -- same "memory
+  // augmentation must never block or crash a turn" reasoning as every other
+  // best-effort fs operation in this file. `fs.readFileString` failing
+  // (missing file being the common case) and `parseOverrides` throwing
+  // (corrupt JSON or wrong shape, caught by `Effect.try`) both land in the
+  // error channel here, so a single `Effect.orElseSucceed` covers both.
+  const readOverrides = (storeDir: string) =>
+    Effect.gen(function* () {
+      const text = yield* fs.readFileString(overridesFilePath(storeDir));
+      return yield* Effect.try(() => parseOverrides(text));
+    }).pipe(Effect.orElseSucceed(() => EMPTY_OVERRIDES));
+
+  // Persists overrides best-effort, mirroring the MEMORY.md store-write
+  // pattern below: `Effect.catch` recovers the error channel (a write
+  // failure just logs and degrades) without risking a defect via `orDie`.
+  const writeOverrides = (storeDir: string, overrides: MemoryOverrides) =>
+    Effect.gen(function* () {
+      yield* fs.makeDirectory(storeDir, { recursive: true });
+      yield* fs.writeFileString(overridesFilePath(storeDir), JSON.stringify(overrides));
+    }).pipe(
+      Effect.catch((cause) => Effect.logWarning(`shared memory overrides write skipped: ${cause}`)),
+    );
+
   const refresh = (cwd: string) =>
     Effect.gen(function* () {
       const storeDir = yield* paths.resolveStoreDir(cwd);
@@ -175,8 +238,11 @@ export const make = Effect.gen(function* () {
         { concurrency: 4 },
       );
       const records = nested.flat();
+      const overrides = yield* readOverrides(storeDir);
       const { markdown: aggregatedMarkdown, entries } = aggregateSharedMemory(records, {
         maxBytes: MAX_SHARED_MEMORY_BYTES,
+        pinnedKeys: new Set(overrides.pinnedKeys),
+        tombstonedKeys: new Set(overrides.tombstonedKeys),
       });
 
       // Append the write-back trailer to every digest, even an empty one --
@@ -364,7 +430,40 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  return SharedProjectMemory.of({ refresh, read, streamMemory });
+  const withKey = (keys: ReadonlyArray<string>, key: string) =>
+    keys.includes(key) ? keys : [...keys, key];
+
+  // Pins a `contentKey` so `aggregateSharedMemory` keeps it even over
+  // `MAX_SHARED_MEMORY_BYTES` (see `AggregateOptions.pinnedKeys`), then
+  // `refresh`es so the cache and every `streamMemory` subscriber pick up the
+  // pin immediately -- same "read overrides, mutate, persist, refresh"
+  // shape as `deleteEntry` below.
+  const pinEntry = (cwd: string, key: string) =>
+    Effect.gen(function* () {
+      const storeDir = yield* paths.resolveStoreDir(cwd);
+      const overrides = yield* readOverrides(storeDir);
+      yield* writeOverrides(storeDir, {
+        ...overrides,
+        pinnedKeys: withKey(overrides.pinnedKeys, key),
+      });
+      yield* refresh(cwd);
+    });
+
+  // Tombstones a `contentKey` so `aggregateSharedMemory` drops it even if a
+  // source still contains it (see `AggregateOptions.tombstonedKeys`), then
+  // `refresh`es so the deletion is reflected immediately, live.
+  const deleteEntry = (cwd: string, key: string) =>
+    Effect.gen(function* () {
+      const storeDir = yield* paths.resolveStoreDir(cwd);
+      const overrides = yield* readOverrides(storeDir);
+      yield* writeOverrides(storeDir, {
+        ...overrides,
+        tombstonedKeys: withKey(overrides.tombstonedKeys, key),
+      });
+      yield* refresh(cwd);
+    });
+
+  return SharedProjectMemory.of({ refresh, read, streamMemory, pinEntry, deleteEntry });
 });
 
 export const layer = Layer.effect(SharedProjectMemory, make).pipe(

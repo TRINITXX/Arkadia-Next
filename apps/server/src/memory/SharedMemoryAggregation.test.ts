@@ -58,4 +58,39 @@ describe("aggregateSharedMemory", () => {
     expect(out.entries).toHaveLength(0);
     expect(out.markdown).toEqual("");
   });
+
+  it("drops an entry whose key is tombstoned, even though a source still has it", () => {
+    const droppedKey = contentKey("Fact A");
+    const out = aggregateSharedMemory(
+      [rec("claude", "Fact A", 1000), rec("codex", "Fact B", 2000)],
+      { maxBytes: 10_000, tombstonedKeys: new Set([droppedKey]) },
+    );
+    expect(out.entries.map((e) => e.text)).toEqual(["Fact B"]);
+  });
+
+  it("keeps a pinned entry over the byte budget, while the same unpinned entry would be evicted", () => {
+    const big = "x".repeat(200);
+    const oldText = "small old fact";
+    const oldKey = contentKey(oldText);
+    const records = [rec("claude", oldText, 1000), rec("codex", big, 2000)];
+    // big alone (204 bytes) fits in 210; big + old (204 + 18 = 222) does not.
+    const maxBytes = 210;
+
+    const withoutPin = aggregateSharedMemory(records, { maxBytes });
+    expect(withoutPin.entries.map((e) => e.text)).toEqual([big]);
+    expect(withoutPin.droppedForSize).toEqual(1);
+
+    const withPin = aggregateSharedMemory(records, { maxBytes, pinnedKeys: new Set([oldKey]) });
+    expect(withPin.entries.map((e) => e.text)).toEqual([big, oldText]);
+    expect(withPin.droppedForSize).toEqual(0);
+  });
+
+  it("drops an entry that is both pinned and tombstoned -- tombstone wins", () => {
+    const key = contentKey("Fact A");
+    const out = aggregateSharedMemory(
+      [rec("claude", "Fact A", 1000), rec("codex", "Fact B", 2000)],
+      { maxBytes: 10_000, pinnedKeys: new Set([key]), tombstonedKeys: new Set([key]) },
+    );
+    expect(out.entries.map((e) => e.text)).toEqual(["Fact B"]);
+  });
 });
