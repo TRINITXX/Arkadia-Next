@@ -12,8 +12,10 @@ import {
 import { memo, useCallback, useMemo } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
+import { useMergeCleanupThreadAction } from "../hooks/useMergeCleanupThreadAction";
 import { useProject, useThread, useThreadShellsForProjectRefs } from "../state/entities";
 import { useIsMobile } from "../hooks/useMediaQuery";
+import { readLocalApi } from "../localApi";
 import {
   type EnvMode,
   type EnvironmentOption,
@@ -21,9 +23,11 @@ import {
   resolveEnvModeLabel,
   resolveEffectiveEnvMode,
   resolveLockedWorkspaceLabel,
+  resolveMergeCleanupConfirmation,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
   shouldShowEnvironmentIndicator,
+  shouldShowMergeCleanupButton,
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { BranchToolbarEnvironmentSelector } from "./BranchToolbarEnvironmentSelector";
@@ -40,6 +44,7 @@ import {
   MenuTrigger,
 } from "./ui/menu";
 import { Separator } from "./ui/separator";
+import { stackedThreadToast, toastManager } from "./ui/toast";
 
 interface BranchToolbarProps {
   environmentId: EnvironmentId;
@@ -301,6 +306,48 @@ export const BranchToolbar = memo(function BranchToolbar({
   });
   const isMobile = useIsMobile();
 
+  const mergeCleanup = useMergeCleanupThreadAction({
+    environmentId,
+    cwd: activeProject?.workspaceRoot ?? null,
+  });
+  const showMergeCleanup = shouldShowMergeCleanupButton({
+    hasServerThread: serverThread !== null,
+    worktreePath: activeWorktreePath,
+    isBusy: mergeCleanup.isPending,
+  });
+
+  const onMergeCleanup = useCallback(async () => {
+    if (!serverThread || !activeWorktreePath) return;
+    const localApi = readLocalApi();
+    const message = resolveMergeCleanupConfirmation({
+      base: serverThread.branch ?? "la base",
+      branch: serverThread.branch ?? activeWorktreePath,
+    });
+    const confirmed = localApi ? await localApi.dialogs.confirm(message) : window.confirm(message);
+    if (!confirmed) return;
+
+    const result = await mergeCleanup.run({ threadId });
+    if (result._tag === "Failure") {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Fusion impossible",
+          description: "Le worktree n'a pas pu être fusionné. Voir les détails dans le thread.",
+        }),
+      );
+      return;
+    }
+    if (result.value.outcome === "awaiting_conflict") {
+      toastManager.add(
+        stackedThreadToast({
+          type: "info",
+          title: "Conflit confié à l'agent",
+          description: "Résous-le dans la conversation ; le nettoyage reprendra automatiquement.",
+        }),
+      );
+    }
+  }, [serverThread, activeWorktreePath, mergeCleanup, threadId]);
+
   if (!hasActiveThread || !activeProject) return null;
 
   return (
@@ -342,6 +389,17 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
           />
         </div>
+      )}
+
+      {showMergeCleanup && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void onMergeCleanup()}
+          disabled={mergeCleanup.isPending}
+        >
+          Fusionner & nettoyer
+        </Button>
       )}
 
       <BranchToolbarBranchSelector

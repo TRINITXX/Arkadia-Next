@@ -235,6 +235,24 @@ export function resolveBranchSelectionTarget(input: {
   };
 }
 
+export function shouldShowMergeCleanupButton(input: {
+  hasServerThread: boolean;
+  worktreePath: string | null;
+  isBusy: boolean;
+}): boolean {
+  return input.hasServerThread && input.worktreePath !== null && !input.isBusy;
+}
+
+export function resolveMergeCleanupConfirmation(input: { base: string; branch: string }): string {
+  return [
+    `Fusionner « ${input.branch} » dans « ${input.base} », puis :`,
+    "• effacer le worktree et supprimer la branche,",
+    "• archiver ce thread.",
+    "",
+    "Tout reste 100% local. Continuer ?",
+  ].join("\n");
+}
+
 export function shouldIncludeBranchPickerItem(input: {
   itemValue: string;
   normalizedQuery: string;

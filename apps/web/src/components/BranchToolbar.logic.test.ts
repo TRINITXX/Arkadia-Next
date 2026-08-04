@@ -14,10 +14,12 @@ import {
   resolveBranchToolbarValue,
   resolveLockedWorkspaceLabel,
   resolveLocalCheckoutBranchMismatch,
+  resolveMergeCleanupConfirmation,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
   shouldIncludeBranchPickerItem,
   shouldShowEnvironmentIndicator,
+  shouldShowMergeCleanupButton,
 } from "./BranchToolbar.logic";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
@@ -660,6 +662,33 @@ describe("resolveBranchSelectionTarget", () => {
       nextWorktreePath: "/repo/.t3/worktrees/feature-a",
       reuseExistingWorktree: false,
     });
+  });
+});
+
+describe("merge cleanup button", () => {
+  it("shows only for a started server thread that has a worktree", () => {
+    expect(
+      shouldShowMergeCleanupButton({ hasServerThread: true, worktreePath: "/wt/x", isBusy: false }),
+    ).toBe(true);
+    expect(
+      shouldShowMergeCleanupButton({ hasServerThread: true, worktreePath: null, isBusy: false }),
+    ).toBe(false);
+    expect(
+      shouldShowMergeCleanupButton({
+        hasServerThread: false,
+        worktreePath: "/wt/x",
+        isBusy: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowMergeCleanupButton({ hasServerThread: true, worktreePath: "/wt/x", isBusy: true }),
+    ).toBe(false);
+  });
+
+  it("names the base branch in the confirmation copy", () => {
+    const copy = resolveMergeCleanupConfirmation({ base: "main", branch: "feature/x" });
+    expect(copy).toContain("main");
+    expect(copy).toContain("feature/x");
   });
 });
 
