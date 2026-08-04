@@ -2,7 +2,7 @@
  * MergeCleanupService - Happy-path orchestration for merging a thread's
  * worktree branch back into its base branch and tearing the worktree down.
  *
- * Sequence (clean merge only; conflicts are Task 5):
+ * Sequence:
  *   1. Auto-commit whatever is dirty in the worktree (reuses the existing
  *      stacked "commit" action; gracefully skips when the worktree is clean).
  *   2. Merge the base branch into the worktree's branch.
@@ -10,13 +10,18 @@
  *      merge into it directly if it's the branch currently checked out in
  *      the main working tree), remove the worktree, delete the branch, and
  *      dispatch a `thread.archive` command.
- *   4. If that merge conflicts: report `awaiting_conflict` and leave
- *      resolution to Task 5 (`resumeIfClean` is a stub for now).
+ *   4. If that merge conflicts: record the thread as pending, post a French
+ *      resolution prompt to the agent via `thread.turn.start`, and report
+ *      `awaiting_conflict`. `resumeIfClean` is polled (by the reactor wired
+ *      in a later task) after each agent turn; once the worktree has no
+ *      unmerged paths and a clean `git status`, it finalizes the same way
+ *      the happy path does.
  *
  * @module MergeCleanupService
  */
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as HashMap from "effect/HashMap";
 import * as Layer from "effect/Layer";
@@ -24,7 +29,13 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
-import { CommandId, type ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  MessageId,
+  type ThreadId,
+} from "@t3tools/contracts";
 
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
@@ -157,6 +168,40 @@ const make = Effect.gen(function* () {
       yield* Ref.update(pending, HashMap.remove(ctx.threadId));
     });
 
+  const CONFLICT_PROMPT = (base: string) =>
+    [
+      `La fusion de la branche \`${base}\` dans cette branche a produit des conflits git.`,
+      "Résous les conflits dans les fichiers marqués, puis conclus la fusion avec un commit.",
+      "Ne touche à rien d'autre : une fois le worktree propre, la finalisation reprendra automatiquement.",
+    ].join("\n");
+
+  const isWorktreeClean = (cwd: string) =>
+    Effect.gen(function* () {
+      const unmerged = yield* gitCore
+        .execute({ operation: "MergeCleanup.unmerged", cwd, args: ["ls-files", "--unmerged"] })
+        .pipe(Effect.map((r) => r.stdout.trim()));
+      const status = yield* gitCore
+        .execute({ operation: "MergeCleanup.status", cwd, args: ["status", "--porcelain"] })
+        .pipe(Effect.map((r) => r.stdout.trim()));
+      return unmerged.length === 0 && status.length === 0;
+    });
+
+  const postConflictPrompt = (ctx: MergeCleanupContext) =>
+    Effect.gen(function* () {
+      const commandId = yield* serverCommandId("merge-cleanup-conflict");
+      const messageId = yield* crypto.randomUUIDv4.pipe(Effect.map(MessageId.make));
+      const createdAt = yield* Effect.map(DateTime.now, DateTime.formatIso);
+      yield* orchestrationEngine.dispatch({
+        type: "thread.turn.start",
+        commandId,
+        threadId: ctx.threadId,
+        message: { messageId, role: "user", text: CONFLICT_PROMPT(ctx.base), attachments: [] },
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt,
+      });
+    });
+
   const attempt: MergeCleanupServiceShape["attempt"] = (input) =>
     Effect.gen(function* () {
       const ctx = yield* resolveContext(input);
@@ -172,8 +217,8 @@ const make = Effect.gen(function* () {
           ),
         );
 
-      // 2. Bring the base into the worktree branch. A conflict here is
-      // handled by Task 5; for now we just report it and stop.
+      // 2. Bring the base into the worktree branch. A conflict here hands
+      // resolution to the agent (see below) and stops short of finalizing.
       const merge = yield* gitWorkflow
         .mergeRef({ cwd: ctx.worktreePath, refName: ctx.base })
         .pipe(
@@ -182,6 +227,12 @@ const make = Effect.gen(function* () {
           ),
         );
       if (merge.status === "conflict") {
+        yield* Ref.update(pending, HashMap.set(ctx.threadId, ctx));
+        yield* postConflictPrompt(ctx).pipe(
+          Effect.mapError(
+            (error) => new MergeCleanupError({ threadId: ctx.threadId, detail: String(error) }),
+          ),
+        );
         return { outcome: "awaiting_conflict" as const };
       }
 
@@ -195,7 +246,19 @@ const make = Effect.gen(function* () {
       return { outcome: "completed" as const };
     });
 
-  const resumeIfClean: MergeCleanupServiceShape["resumeIfClean"] = () => Effect.void; // Task 5
+  const resumeIfClean: MergeCleanupServiceShape["resumeIfClean"] = (threadId) =>
+    Effect.gen(function* () {
+      const ctxOption = yield* Ref.get(pending).pipe(Effect.map(HashMap.get(threadId)));
+      if (Option.isNone(ctxOption)) return;
+      const ctx = ctxOption.value;
+      const clean = yield* isWorktreeClean(ctx.worktreePath);
+      if (!clean) return; // agent not done — wait for the next turn.completed
+      yield* finalize(ctx);
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("merge cleanup resume failed", { threadId, cause }),
+      ),
+    );
 
   return { attempt, resumeIfClean } satisfies MergeCleanupServiceShape;
 });

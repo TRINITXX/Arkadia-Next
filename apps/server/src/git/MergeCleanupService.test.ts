@@ -255,3 +255,165 @@ it.effect("merges cleanly, removes the worktree, deletes the branch, and archive
     );
   }).pipe(Effect.provide(GitVcsDriverTestLayer)),
 );
+
+// Arranges a repo + worktree branch that are guaranteed to conflict on
+// merge (both the base and the worktree branch edit README's single line),
+// plus the fake ProjectionSnapshotQuery / OrchestrationEngineService layers
+// that MergeCleanupServiceLive needs. Mirrors the happy-path arrange above.
+const arrangeConflictScenario = () =>
+  Effect.gen(function* () {
+    const cwd = yield* makeTmpDir("merge-cleanup-conflict-repo-");
+    const { initialBranch } = yield* initRepoWithCommit(cwd);
+    const pathService = yield* Path.Path;
+    const worktreePath = pathService.join(
+      yield* makeTmpDir("merge-cleanup-conflict-worktree-"),
+      "feature-x",
+    );
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+
+    // Create the worktree branch off the base — this writes
+    // branch.feature/x.gh-merge-base=<initialBranch>.
+    yield* driver.createWorktree({
+      cwd,
+      refName: initialBranch,
+      newRefName: "feature/x",
+      baseRefName: initialBranch,
+      path: worktreePath,
+    });
+
+    // Both branches edit README's single line → guaranteed conflict.
+    yield* writeTextFile(worktreePath, "README.md", "# feature edit\n");
+    yield* git(worktreePath, ["add", "."]);
+    yield* git(worktreePath, ["commit", "-m", "feature edits readme"]);
+
+    yield* writeTextFile(cwd, "README.md", "# base edit\n");
+    yield* git(cwd, ["add", "."]);
+    yield* git(cwd, ["commit", "-m", "base edits readme"]);
+
+    const threadId = ThreadId.make("thread-merge-cleanup-conflict-1");
+    const projectId = ProjectId.make("project-merge-cleanup-conflict-1");
+    const now = "2026-08-04T00:00:00.000Z";
+
+    const thread = {
+      id: threadId,
+      projectId,
+      title: "Merge cleanup conflict thread",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "feature/x",
+      worktreePath,
+      latestTurn: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      session: null,
+      latestUserMessageAt: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    } satisfies OrchestrationThreadShell;
+
+    const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+
+    const serviceLayer = MergeCleanupServiceLive.pipe(
+      Layer.provide(gitWorkflowTestLayer),
+      Layer.provide(
+        Layer.succeed(ProjectionSnapshotQuery, {
+          getThreadShellById: () => Effect.succeed(Option.some(thread)),
+        } as unknown as ProjectionSnapshotQueryShape),
+      ),
+      Layer.provide(
+        Layer.succeed(OrchestrationEngineService, {
+          dispatch: (command: OrchestrationCommand) =>
+            Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+              Effect.as({ sequence: 1 }),
+            ),
+        } as unknown as OrchestrationEngineShape),
+      ),
+    );
+
+    return { cwd, worktreePath, threadId, dispatched, serviceLayer };
+  });
+
+it.effect("hands a conflict to the agent and stays pending", () =>
+  Effect.gen(function* () {
+    const { cwd, worktreePath, threadId, dispatched, serviceLayer } =
+      yield* arrangeConflictScenario();
+
+    const result = yield* Effect.gen(function* () {
+      const service = yield* MergeCleanupService;
+      return yield* service.attempt({ threadId, workspaceRoot: cwd });
+    }).pipe(Effect.provide(serviceLayer));
+
+    assert.equal(result.outcome, "awaiting_conflict");
+
+    // The worktree is still there (and still mid-conflict) — nothing
+    // finalized yet.
+    const fileSystem = yield* FileSystem.FileSystem;
+    assert.equal(yield* fileSystem.exists(worktreePath), true);
+
+    // A thread.turn.start with a user message was dispatched to the agent.
+    const dispatchedCommands = yield* Ref.get(dispatched);
+    const turn = dispatchedCommands.find(
+      (command) => command.type === "thread.turn.start" && command.threadId === threadId,
+    );
+    assert.equal(turn !== undefined, true);
+
+    // No archive yet.
+    assert.equal(
+      dispatchedCommands.some((command) => command.type === "thread.archive"),
+      false,
+    );
+  }).pipe(Effect.provide(GitVcsDriverTestLayer)),
+);
+
+it.effect("resumeIfClean finalizes once the conflict is resolved and committed", () =>
+  Effect.gen(function* () {
+    const { cwd, worktreePath, threadId, dispatched, serviceLayer } =
+      yield* arrangeConflictScenario();
+
+    yield* Effect.gen(function* () {
+      const service = yield* MergeCleanupService;
+      yield* service.attempt({ threadId, workspaceRoot: cwd }); // → conflict, pending
+
+      // Simulate the agent resolving the conflict and concluding the
+      // in-progress merge with a commit inside the worktree.
+      yield* writeTextFile(worktreePath, "README.md", "# resolved\n");
+      yield* git(worktreePath, ["add", "README.md"]);
+      yield* git(worktreePath, ["commit", "--no-edit"]);
+
+      yield* service.resumeIfClean(threadId);
+    }).pipe(Effect.provide(serviceLayer));
+
+    const fileSystem = yield* FileSystem.FileSystem;
+    assert.equal(yield* fileSystem.exists(worktreePath), false);
+    assert.equal((yield* git(cwd, ["branch", "--list", "feature/x"])).trim(), "");
+
+    const dispatchedCommands = yield* Ref.get(dispatched);
+    assert.equal(
+      dispatchedCommands.some(
+        (command) => command.type === "thread.archive" && command.threadId === threadId,
+      ),
+      true,
+    );
+  }).pipe(Effect.provide(GitVcsDriverTestLayer)),
+);
+
+it.effect("resumeIfClean does nothing while the worktree is still conflicted", () =>
+  Effect.gen(function* () {
+    const { cwd, worktreePath, threadId, serviceLayer } = yield* arrangeConflictScenario();
+
+    yield* Effect.gen(function* () {
+      const service = yield* MergeCleanupService;
+      yield* service.attempt({ threadId, workspaceRoot: cwd }); // conflict, pending, NOT resolved
+      yield* service.resumeIfClean(threadId);
+    }).pipe(Effect.provide(serviceLayer));
+
+    // Untouched — the conflict was never resolved, so finalize must not run.
+    const fileSystem = yield* FileSystem.FileSystem;
+    assert.equal(yield* fileSystem.exists(worktreePath), true);
+  }).pipe(Effect.provide(GitVcsDriverTestLayer)),
+);
