@@ -83,6 +83,10 @@
       "types": "./src/state/projects.ts",
       "default": "./src/state/projects.ts"
     },
+    "./state/project-memory": {
+      "types": "./src/state/projectMemory.ts",
+      "default": "./src/state/projectMemory.ts"
+    },
     "./state/project-grouping": {
       "types": "./src/state/projectGrouping.ts",
       "default": "./src/state/projectGrouping.ts"

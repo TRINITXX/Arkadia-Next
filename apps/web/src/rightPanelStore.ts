@@ -25,6 +25,7 @@ export const RIGHT_PANEL_KINDS = [
   "preview",
   "terminal",
   "notepad",
+  "projectMemory",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -49,10 +50,11 @@ export type RightPanelSurface =
       revealRequestId: number;
     }
   | { id: "plan"; kind: "plan" }
-  | { id: "notepad"; kind: "notepad" };
+  | { id: "notepad"; kind: "notepad" }
+  | { id: "projectMemory"; kind: "projectMemory" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 8;
+const RIGHT_PANEL_STORAGE_VERSION = 9;
 
 export interface ThreadRightPanelState {
   isOpen: boolean;
@@ -106,6 +108,8 @@ const singletonSurface = (
       return { id: "plan", kind };
     case "notepad":
       return { id: "notepad", kind };
+    case "projectMemory":
+      return { id: "projectMemory", kind };
   }
 };
 

@@ -208,6 +208,7 @@ import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { useProjectTerminalsStore } from "./terminal/projectTerminalsStore";
 import { ArkadiaToolbar } from "./toolbar/ArkadiaToolbar";
 import { NotepadPanel } from "./notepad/NotepadPanel";
+import { ProjectMemoryPanel } from "./projectMemory/ProjectMemoryPanel";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -3015,6 +3016,10 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "notepad");
   }, [activeThreadRef]);
+  const addProjectMemorySurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "projectMemory");
+  }, [activeThreadRef]);
   const openFileSurface = useCallback(
     (relativePath: string) => {
       if (!activeThreadRef || !activeProject) return;
@@ -5429,6 +5434,11 @@ function ChatViewContent(props: ChatViewProps) {
       </Suspense>
     ) : activeRightPanelSurface?.kind === "notepad" ? (
       <NotepadPanel projectId={activeProject?.id ?? null} />
+    ) : activeRightPanelSurface?.kind === "projectMemory" ? (
+      <ProjectMemoryPanel
+        environmentId={activeProject?.environmentId ?? null}
+        cwd={activeWorkspaceRoot ?? null}
+      />
     ) : activeRightPanelSurface?.kind === "plan" ? (
       <PlanSidebar
         activePlan={activePlan}
@@ -5874,6 +5884,7 @@ function ChatViewContent(props: ChatViewProps) {
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           onAddNotepad={addNotepadSurface}
+          onAddProjectMemory={addProjectMemorySurface}
           browserAvailable={isPreviewSupportedInRuntime()}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
@@ -5902,6 +5913,7 @@ function ChatViewContent(props: ChatViewProps) {
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
             onAddNotepad={addNotepadSurface}
+            onAddProjectMemory={addProjectMemorySurface}
             browserAvailable={isPreviewSupportedInRuntime()}
             diffAvailable={isServerThread && isGitRepo}
             filesAvailable={activeProject !== null}
