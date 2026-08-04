@@ -1,6 +1,7 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import {
+  BrainCircuit,
   ClipboardList,
   FileDiff,
   Files,
@@ -54,6 +55,7 @@ interface RightPanelTabsProps {
   onAddDiff: () => void;
   onAddFiles: () => void;
   onAddNotepad: () => void;
+  onAddProjectMemory: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
@@ -102,6 +104,7 @@ function RightPanelEmptyState(props: {
   onAddDiff: () => void;
   onAddFiles: () => void;
   onAddNotepad: () => void;
+  onAddProjectMemory: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
@@ -146,6 +149,14 @@ function RightPanelEmptyState(props: {
       available: true,
       disabledReason: null,
       onClick: props.onAddNotepad,
+    },
+    {
+      label: "Mémoire",
+      description: "Souvenirs partagés entre les providers pour ce projet.",
+      icon: BrainCircuit,
+      available: true,
+      disabledReason: null,
+      onClick: props.onAddProjectMemory,
     },
   ] as const;
 
@@ -226,6 +237,8 @@ function surfaceTitle(
       return "Plan";
     case "notepad":
       return "Bloc-notes";
+    case "projectMemory":
+      return "Mémoire";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -289,6 +302,8 @@ function SurfaceIcon({
       return <ClipboardList className="size-3.5 shrink-0" />;
     case "notepad":
       return <NotebookPen className="size-3.5 shrink-0" />;
+    case "projectMemory":
+      return <BrainCircuit className="size-3.5 shrink-0" />;
   }
 }
 
@@ -498,6 +513,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <NotebookPen />
                     Bloc-notes
                   </SurfaceMenuItem>
+                  <SurfaceMenuItem available onClick={props.onAddProjectMemory}>
+                    <BrainCircuit />
+                    Mémoire
+                  </SurfaceMenuItem>
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -513,6 +532,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddDiff={props.onAddDiff}
             onAddFiles={props.onAddFiles}
             onAddNotepad={props.onAddNotepad}
+            onAddProjectMemory={props.onAddProjectMemory}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}

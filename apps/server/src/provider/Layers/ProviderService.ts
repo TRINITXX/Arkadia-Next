@@ -53,6 +53,7 @@ import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.
 import { type EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
+import * as SharedProjectMemory from "../../memory/SharedProjectMemory.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 const isModelSelection = Schema.is(ModelSelection);
@@ -212,6 +213,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+  const sharedProjectMemory = yield* SharedProjectMemory.SharedProjectMemory;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
@@ -685,7 +687,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       // rather than issuing a new one: sessions that go a long time between
       // browser tool calls used to lose the toolkit outright.
       yield* McpSessionRegistry.touchActiveMcpThread(input.threadId);
-      const turn = yield* routed.adapter.sendTurn(input);
+      const bindingForMemory = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+      const memoryCwd = bindingForMemory
+        ? readPersistedCwd(bindingForMemory.runtimePayload)
+        : undefined;
+      const sharedContext = memoryCwd
+        ? yield* sharedProjectMemory.read(memoryCwd).pipe(Effect.catch(() => Effect.succeed("")))
+        : "";
+      const enrichedInput = sharedContext.length > 0 ? { ...input, sharedContext } : input;
+      const turn = yield* routed.adapter.sendTurn(enrichedInput);
       yield* directory.upsert({
         threadId: input.threadId,
         provider: routed.adapter.provider,

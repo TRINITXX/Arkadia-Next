@@ -961,6 +961,12 @@ export function makeCursorAdapter(
           }
 
           const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
+          if (input.sharedContext) {
+            promptParts.push({
+              type: "text",
+              text: `<shared_project_memory>\n${input.sharedContext}\n</shared_project_memory>`,
+            });
+          }
           if (input.input?.trim()) {
             promptParts.push({ type: "text", text: input.input.trim() });
           }

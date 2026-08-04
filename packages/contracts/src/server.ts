@@ -96,6 +96,32 @@ export const ServerProviderSkill = Schema.Struct({
 });
 export type ServerProviderSkill = typeof ServerProviderSkill.Type;
 
+export const SharedMemoryEntry = Schema.Struct({
+  key: TrimmedNonEmptyString,
+  text: TrimmedNonEmptyString,
+  provider: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+});
+export type SharedMemoryEntry = typeof SharedMemoryEntry.Type;
+
+export const SharedMemorySnapshot = Schema.Struct({
+  readAt: Schema.DateTimeUtc,
+  markdown: Schema.String,
+  entries: Schema.Array(SharedMemoryEntry).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type SharedMemorySnapshot = typeof SharedMemorySnapshot.Type;
+
+export const ProjectMemorySubscribeInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ProjectMemorySubscribeInput = typeof ProjectMemorySubscribeInput.Type;
+
+export const ProjectMemoryMutateInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  key: TrimmedNonEmptyString,
+});
+export type ProjectMemoryMutateInput = typeof ProjectMemoryMutateInput.Type;
+
 /**
  * Availability of a configured provider instance from the runtime's POV.
  *

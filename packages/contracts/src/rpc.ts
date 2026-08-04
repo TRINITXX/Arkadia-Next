@@ -130,6 +130,8 @@ import {
   PreviewAutomationStreamEvent,
 } from "./previewAutomation.ts";
 import {
+  ProjectMemoryMutateInput,
+  ProjectMemorySubscribeInput,
   ServerConfigStreamEvent,
   ServerConfig,
   ServerProviderUpdateError,
@@ -150,6 +152,7 @@ import {
   ServerSignalProcessResult,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
+  SharedMemorySnapshot,
 } from "./server.ts";
 import {
   ResourceTelemetryHistory,
@@ -263,8 +266,13 @@ export const WS_METHODS = {
   sourceControlCloneRepository: "sourceControl.cloneRepository",
   sourceControlPublishRepository: "sourceControl.publishRepository",
 
+  // Project memory methods
+  projectMemoryPin: "projectMemory.pin",
+  projectMemoryDelete: "projectMemory.delete",
+
   // Streaming subscriptions
   subscribeVcsStatus: "subscribeVcsStatus",
+  subscribeProjectMemory: "subscribeProjectMemory",
   subscribeTerminalEvents: "subscribeTerminalEvents",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribePreviewEvents: "subscribePreviewEvents",
@@ -449,6 +457,23 @@ export const WsSourceControlPublishRepositoryRpc = Rpc.make(
     error: Schema.Union([SourceControlRepositoryError, EnvironmentAuthorizationError]),
   },
 );
+
+export const WsSubscribeProjectMemoryRpc = Rpc.make(WS_METHODS.subscribeProjectMemory, {
+  payload: ProjectMemorySubscribeInput,
+  success: SharedMemorySnapshot,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+export const WsProjectMemoryPinRpc = Rpc.make(WS_METHODS.projectMemoryPin, {
+  payload: ProjectMemoryMutateInput,
+  error: EnvironmentAuthorizationError,
+});
+
+export const WsProjectMemoryDeleteRpc = Rpc.make(WS_METHODS.projectMemoryDelete, {
+  payload: ProjectMemoryMutateInput,
+  error: EnvironmentAuthorizationError,
+});
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
@@ -859,6 +884,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsSourceControlLookupRepositoryRpc,
   WsSourceControlCloneRepositoryRpc,
   WsSourceControlPublishRepositoryRpc,
+  WsSubscribeProjectMemoryRpc,
+  WsProjectMemoryPinRpc,
+  WsProjectMemoryDeleteRpc,
   WsProjectsListEntriesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,
