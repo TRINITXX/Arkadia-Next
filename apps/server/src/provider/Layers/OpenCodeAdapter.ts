@@ -1487,7 +1487,18 @@ export function makeOpenCodeAdapter(
           model: parsedModel,
           ...(context.activeAgent ? { agent: context.activeAgent } : {}),
           ...(context.activeVariant ? { variant: context.activeVariant } : {}),
-          parts: [...(text ? [{ type: "text" as const, text }] : []), ...fileParts],
+          parts: [
+            ...(input.sharedContext
+              ? [
+                  {
+                    type: "text" as const,
+                    text: `<shared_project_memory>\n${input.sharedContext}\n</shared_project_memory>`,
+                  },
+                ]
+              : []),
+            ...(text ? [{ type: "text" as const, text }] : []),
+            ...fileParts,
+          ],
         }),
       ).pipe(
         Effect.mapError(toRequestError),

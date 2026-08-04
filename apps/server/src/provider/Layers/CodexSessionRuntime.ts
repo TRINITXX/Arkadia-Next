@@ -118,6 +118,7 @@ export interface CodexSessionRuntimeSendTurnInput {
   readonly serviceTier?: CodexServiceTier | undefined;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort | undefined;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly sharedContext?: string;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -370,11 +371,18 @@ export function buildTurnStartParams(input: {
   readonly serviceTier?: CodexServiceTier;
   readonly effort?: EffectCodexSchema.V2TurnStartParams__ReasoningEffort;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly sharedContext?: string;
 }): Effect.Effect<
   CodexTurnStartParamsWithCollaborationMode,
   CodexErrors.CodexAppServerProtocolParseError
 > {
   const turnInput: Array<EffectCodexSchema.V2TurnStartParams__UserInput> = [];
+  if (input.sharedContext) {
+    turnInput.push({
+      type: "text",
+      text: `<shared_project_memory>\n${input.sharedContext}\n</shared_project_memory>`,
+    });
+  }
   if (input.prompt) {
     turnInput.push({
       type: "text",
@@ -1301,6 +1309,7 @@ export const makeCodexSessionRuntime = (
             ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
             ...(input.effort ? { effort: input.effort } : {}),
             ...(input.interactionMode ? { interactionMode: input.interactionMode } : {}),
+            ...(input.sharedContext ? { sharedContext: input.sharedContext } : {}),
           });
           const rawResponse = yield* client.raw.request("turn/start", params);
           const response = yield* decodeV2TurnStartResponse(rawResponse).pipe(

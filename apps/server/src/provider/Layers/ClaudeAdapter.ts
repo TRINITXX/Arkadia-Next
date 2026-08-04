@@ -900,7 +900,10 @@ function buildPromptText(
   const caps = getClaudeModelCapabilities(claudeModel);
 
   const promptEffort = resolvePromptInjectedEffort(caps, rawEffort);
-  return applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
+  const body = applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
+  return input.sharedContext
+    ? `<shared_project_memory>\n${input.sharedContext}\n</shared_project_memory>\n\n${body}`
+    : body;
 }
 
 function buildUserMessage(input: {

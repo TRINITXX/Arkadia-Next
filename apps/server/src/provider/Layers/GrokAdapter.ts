@@ -985,6 +985,14 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                   }),
               );
               const promptParts: Array<EffectAcpSchema.ContentBlock> = [
+                ...(input.sharedContext
+                  ? [
+                      {
+                        type: "text" as const,
+                        text: `<shared_project_memory>\n${input.sharedContext}\n</shared_project_memory>`,
+                      },
+                    ]
+                  : []),
                 ...(text ? [{ type: "text" as const, text }] : []),
                 ...imagePromptParts,
               ];
