@@ -151,6 +151,7 @@ import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
+import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -5498,9 +5499,11 @@ function ChatViewContent(props: ChatViewProps) {
         >
           <ArkadiaToolbar
             terminalAvailable={activeProject !== null}
+            browserAvailable={isPreviewSupportedInRuntime()}
             onOpenNewTerminal={() => openToolbarTerminal()}
             onRunAction={(command) => openToolbarTerminal(command)}
             onOpenNotepad={addNotepadSurface}
+            onOpenBrowser={createBrowserSurface}
           />
         </header>
 

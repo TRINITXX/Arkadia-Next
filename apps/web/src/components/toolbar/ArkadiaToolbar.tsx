@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  Globe2Icon,
   NotebookPenIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
@@ -30,18 +31,24 @@ import { sortedToolbarChildren } from "./toolbarFolderNav";
 
 interface ArkadiaToolbarProps {
   terminalAvailable: boolean;
+  /** Whether the browser preview surface can be opened (desktop-only). */
+  browserAvailable: boolean;
   onOpenNewTerminal: () => void;
   /** Runs an action button's command — always in a brand-new terminal. */
   onRunAction: (command: string) => void;
   /** Opens the notepad right-panel surface and focuses it. */
   onOpenNotepad: () => void;
+  /** Opens the browser right-panel surface. */
+  onOpenBrowser: () => void;
 }
 
 export function ArkadiaToolbar({
   terminalAvailable,
+  browserAvailable,
   onOpenNewTerminal,
   onRunAction,
   onOpenNotepad,
+  onOpenBrowser,
 }: ArkadiaToolbarProps) {
   const navigate = useNavigate();
   const { state, toggleSidebar } = useSidebar();
@@ -73,6 +80,17 @@ export function ArkadiaToolbar({
       <div className="flex shrink-0 items-center gap-0.5">
         <ToolbarIconButton label="Bloc-notes" onClick={onOpenNotepad}>
           <NotebookPenIcon />
+        </ToolbarIconButton>
+        <ToolbarIconButton
+          label={
+            browserAvailable
+              ? "Navigateur"
+              : "Le navigateur n'est disponible que dans l'application desktop"
+          }
+          onClick={onOpenBrowser}
+          disabled={!browserAvailable}
+        >
+          <Globe2Icon />
         </ToolbarIconButton>
         <ToolbarIconButton label="Réglages" onClick={() => void navigate({ to: "/settings" })}>
           <SettingsIcon />
