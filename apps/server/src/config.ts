@@ -33,6 +33,7 @@ export interface ServerDerivedPaths {
   readonly providerStatusCacheDir: string;
   readonly recentFilesCacheDir: string;
   readonly worktreesDir: string;
+  readonly projectMemoryDir: string;
   readonly attachmentsDir: string;
   readonly logsDir: string;
   readonly serverLogPath: string;
@@ -120,6 +121,7 @@ export const deriveServerPaths = Effect.fn(function* (
     providerStatusCacheDir,
     recentFilesCacheDir: join(providerStatusCacheDir, "recent-files"),
     worktreesDir: join(baseDir, "worktrees"),
+    projectMemoryDir: join(baseDir, "project-memory"),
     attachmentsDir,
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
@@ -146,6 +148,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
+      fs.makeDirectory(derivedPaths.projectMemoryDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),
       fs.makeDirectory(derivedPaths.providerStatusCacheDir, { recursive: true }),
