@@ -1268,6 +1268,30 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
     );
   });
 
+  describe("fast-forward", () => {
+    it.effect("fast-forwards a base branch to a descendant branch tip", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        // Create feature branch, add a commit on it, then return to base.
+        yield* driver.createRef({ cwd, refName: "feature/ahead", switchRef: true });
+        yield* writeTextFile(cwd, "feature.txt", "feature work\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "feature commit"]);
+        const featureSha = yield* git(cwd, ["rev-parse", "HEAD"]);
+        // Stay checked out on feature/ahead: git fetch refuses to fast-forward
+        // a branch that is currently checked out, so initialBranch must remain
+        // un-checked-out for this update to succeed.
+
+        yield* driver.fastForwardBranch({ cwd, branch: initialBranch, toRef: "feature/ahead" });
+
+        assert.equal(yield* git(cwd, ["rev-parse", initialBranch]), featureSha);
+      }),
+    );
+  });
+
   describe("remote operations", () => {
     it.effect("ensureRemote reuses an existing remote across ssh/https transport variants", () =>
       Effect.gen(function* () {

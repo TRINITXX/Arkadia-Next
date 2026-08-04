@@ -2751,6 +2751,17 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     );
   });
 
+  const fastForwardBranch: GitVcsDriver.GitVcsDriver["Service"]["fastForwardBranch"] = Effect.fn(
+    "fastForwardBranch",
+  )(function* (input) {
+    yield* executeGit(
+      "GitVcsDriver.fastForwardBranch",
+      input.cwd,
+      ["fetch", ".", `${input.toRef}:${input.branch}`],
+      { timeoutMs: 30_000, fallbackErrorDetail: "git fast-forward update failed" },
+    );
+  });
+
   const switchRef: GitVcsDriver.GitVcsDriver["Service"]["switchRef"] = Effect.fn("switchRef")(
     function* (input) {
       const [localInputExists, remoteExists] = yield* Effect.all(
@@ -2930,6 +2941,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     removeWorktree: (input) => withListRefsInvalidation(input.cwd, removeWorktree(input)),
     renameBranch: (input) => withListRefsInvalidation(input.cwd, renameBranch(input)),
     deleteBranch: (input) => withListRefsInvalidation(input.cwd, deleteBranch(input)),
+    fastForwardBranch: (input) => withListRefsInvalidation(input.cwd, fastForwardBranch(input)),
     createRef: (input) => withListRefsInvalidation(input.cwd, createRef(input)),
     switchRef: (input) => withListRefsInvalidation(input.cwd, switchRef(input)),
     initRepo: initRepoWithListRefsInvalidation,

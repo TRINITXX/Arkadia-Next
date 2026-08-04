@@ -83,6 +83,9 @@ export class GitWorkflowService extends Context.Service<
     readonly deleteBranch: (
       input: GitVcsDriver.GitDeleteBranchInput,
     ) => Effect.Effect<void, GitCommandError>;
+    readonly fastForwardBranch: (
+      input: GitVcsDriver.GitFastForwardBranchInput,
+    ) => Effect.Effect<void, GitCommandError>;
     readonly createRef: (
       input: VcsCreateRefInput,
     ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;
@@ -317,6 +320,10 @@ export const make = Effect.gen(function* () {
     deleteBranch: (input) =>
       ensureGitCommand("GitWorkflowService.deleteBranch", input.cwd).pipe(
         Effect.andThen(git.deleteBranch(input)),
+      ),
+    fastForwardBranch: (input) =>
+      ensureGitCommand("GitWorkflowService.fastForwardBranch", input.cwd).pipe(
+        Effect.andThen(git.fastForwardBranch(input)),
       ),
     createRef: (input) =>
       ensureGitCommand("GitWorkflowService.createRef", input.cwd).pipe(
