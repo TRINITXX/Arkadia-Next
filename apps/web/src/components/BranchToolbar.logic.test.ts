@@ -685,10 +685,10 @@ describe("merge cleanup button", () => {
     ).toBe(false);
   });
 
-  it("names the base branch in the confirmation copy", () => {
-    const copy = resolveMergeCleanupConfirmation({ base: "main", branch: "feature/x" });
-    expect(copy).toContain("main");
+  it("names the branch and uses generic base phrasing in the confirmation copy", () => {
+    const copy = resolveMergeCleanupConfirmation({ branch: "feature/x" });
     expect(copy).toContain("feature/x");
+    expect(copy).toContain("branche de base");
   });
 });
 

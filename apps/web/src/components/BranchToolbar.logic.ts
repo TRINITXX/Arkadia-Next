@@ -243,9 +243,9 @@ export function shouldShowMergeCleanupButton(input: {
   return input.hasServerThread && input.worktreePath !== null && !input.isBusy;
 }
 
-export function resolveMergeCleanupConfirmation(input: { base: string; branch: string }): string {
+export function resolveMergeCleanupConfirmation(input: { branch: string }): string {
   return [
-    `Fusionner « ${input.branch} » dans « ${input.base} », puis :`,
+    `Fusionner « ${input.branch} » dans sa branche de base, puis :`,
     "• effacer le worktree et supprimer la branche,",
     "• archiver ce thread.",
     "",

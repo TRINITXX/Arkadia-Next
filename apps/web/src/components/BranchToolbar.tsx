@@ -320,7 +320,6 @@ export const BranchToolbar = memo(function BranchToolbar({
     if (!serverThread || !activeWorktreePath) return;
     const localApi = readLocalApi();
     const message = resolveMergeCleanupConfirmation({
-      base: serverThread.branch ?? "la base",
       branch: serverThread.branch ?? activeWorktreePath,
     });
     const confirmed = localApi ? await localApi.dialogs.confirm(message) : window.confirm(message);
