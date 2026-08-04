@@ -817,3 +817,38 @@ A panel that subscribes to `streamMemory` (Task 9) and shows the live entry list
 ## Explicitly deferred (needs its own decision, not built here)
 
 - **Semantic dedup:** Tasks 2/10 dedup by whitespace-normalized content hash — cheap and exact-match only. True semantic dedup ("two paraphrases of the same fact") needs an embeddings model (dependency + latency + cost choice). Decide the approach before building; keep hash dedup until then.
+
+---
+
+## Task 12 — AGENTS.md reference: verification finding (resolved: DO NOT wire)
+
+Task 12 was gated on verifying whether Codex CLI and OpenCode natively load a file
+**referenced** (`@import`-style) from `AGENTS.md`. Verified 2026-08-04 against primary sources:
+
+- **Codex CLI (released):** reads `AGENTS.md` files walking project-root → cwd (plus
+  `project_doc_fallback_filenames`), concatenating them — but does **not** expand an
+  `@path/to/file.md` reference. The `@` line is passed through as **literal text**; the model
+  only sees the target if it opens the file itself. `@`-expansion is an *open feature request*,
+  not shipped: openai/codex issues [#6038], [#17401], [#28739], and the loader source
+  `codex-rs/core/src/agents_md.rs` (`read_agents_md` / `agents_md_paths`) performs no
+  reference inlining. Confirmed user report: "The @ path appears to be passed through as
+  literal text; the agent only sees it if it manually opens the file."
+- **OpenCode:** its own docs state plainly — *"opencode doesn't automatically parse file
+  references in AGENTS.md."* External files load via the `instructions` array in
+  `opencode.json` (paths/globs) or via explicit "use your Read tool" prose, **not** via an
+  `@`-reference in `AGENTS.md`.
+- **Claude Code:** *does* follow `@import` in `CLAUDE.md`/`AGENTS.md` — but in-session
+  injection (Tasks 6-7) already covers Claude, and the server never writes `AGENTS.md`.
+
+**Decision (plan Step 3 — NOT supported):** do **nothing** to `AGENTS.md`. A reference would be
+non-functional for Codex and OpenCode (the two providers the task gated on), and the server
+does not author end-user `AGENTS.md` files anyway. No import mechanism was invented.
+
+**Therefore the two delivery paths for shared memory are:**
+1. **In-session injection** (Tasks 6-7) — the guaranteed path for all five providers *inside*
+   T3 Code, independent of any `AGENTS.md` convention.
+2. **The junctioned real file** at `<workspace>/.agents/memory/MEMORY.md` (Task 4) — readable
+   by any tool that reads `.agents/` directly. Note that neither Codex CLI nor OpenCode will
+   *auto-load* it merely from an `AGENTS.md` reference; a raw CLI picks it up only if it reads
+   that path (e.g. an `opencode.json` `instructions` entry the user adds, or a future Codex
+   `@`-include once released). That's a user/tool-side choice, out of scope for the server.
