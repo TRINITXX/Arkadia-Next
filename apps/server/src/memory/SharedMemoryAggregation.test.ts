@@ -34,6 +34,19 @@ describe("aggregateSharedMemory", () => {
     expect(out.droppedForSize).toEqual(1);
   });
 
+  it("stops at the first entry that doesn't fit instead of bin-packing a colder smaller entry past it", () => {
+    const out = aggregateSharedMemory(
+      [
+        rec("codex", "small new", 3000),
+        rec("claude", "X".repeat(300), 2000),
+        rec("grok", "tiny old", 1000),
+      ],
+      { maxBytes: 50 },
+    );
+    expect(out.entries.map((e) => e.text)).toEqual(["small new"]);
+    expect(out.droppedForSize).toEqual(2);
+  });
+
   it("renders markdown with a stable heading and one bullet per entry", () => {
     const out = aggregateSharedMemory([rec("codex", "Fact B", 3000)], { maxBytes: 10_000 });
     expect(out.markdown).toContain("# Shared project memory");

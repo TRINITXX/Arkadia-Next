@@ -44,17 +44,22 @@ export function aggregateSharedMemory(
   // 2. newest-first
   const ordered = [...byKey.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
 
-  // 3. size cap — keep newest until the byte budget is exhausted, evict the rest (coldest)
+  // 3. size cap — keep newest until the byte budget is exhausted, evict the rest (coldest).
+  // Strict newest-first cutoff: the first entry that doesn't fit stops the scan, and it plus
+  // every remaining (older) entry counts as dropped — no bin-packing a smaller, colder entry
+  // past a bigger one that was already rejected.
   const kept: SharedMemoryEntry[] = [];
   let used = 0;
   let dropped = 0;
-  for (const e of ordered) {
+  for (let i = 0; i < ordered.length; i++) {
+    const e = ordered[i];
     const cost = byteLength(e.text) + 4; // "- " + "\n"
     if (used + cost <= options.maxBytes) {
       kept.push({ key: e.key, text: e.text, provider: e.provider, updatedAt: e.updatedAt });
       used += cost;
     } else {
-      dropped += 1;
+      dropped += ordered.length - i;
+      break;
     }
   }
 
