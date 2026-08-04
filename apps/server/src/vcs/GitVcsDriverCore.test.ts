@@ -1292,6 +1292,63 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
     );
   });
 
+  describe("merge", () => {
+    it.effect("merges a ref into the current branch cleanly", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        // Branch feature/clean off the initial commit, then advance
+        // initialBranch by one commit on a new file so feature/clean is a
+        // strict ancestor of initialBranch → a genuinely clean merge.
+        yield* driver.createRef({ cwd, refName: "feature/clean" });
+        yield* writeTextFile(cwd, "base.txt", "base change\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "base commit"]);
+        yield* driver.switchRef({ cwd, refName: "feature/clean" });
+
+        const result = yield* driver.mergeRef({ cwd, refName: initialBranch });
+
+        assert.equal(result.status, "merged");
+        assert.equal(
+          yield* git(cwd, [
+            "cat-file",
+            "-e",
+            `${result.status === "merged" ? result.mergeCommitSha : ""}^{commit}`,
+          ]),
+          "",
+        );
+      }),
+    );
+
+    it.effect("reports a conflict without aborting the merge", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        // Both branches edit README's single line → guaranteed conflict.
+        yield* writeTextFile(cwd, "README.md", "# base edit\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "base edits readme"]);
+        const baseSha = yield* git(cwd, ["rev-parse", "HEAD"]);
+
+        yield* git(cwd, ["branch", "feature/conflict", `${baseSha}~1`]);
+        yield* driver.switchRef({ cwd, refName: "feature/conflict" });
+        yield* writeTextFile(cwd, "README.md", "# feature edit\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "feature edits readme"]);
+
+        const result = yield* driver.mergeRef({ cwd, refName: initialBranch });
+
+        assert.equal(result.status, "conflict");
+        const unmerged = yield* git(cwd, ["ls-files", "--unmerged"]);
+        assert.equal(unmerged.length > 0, true);
+      }),
+    );
+  });
+
   describe("remote operations", () => {
     it.effect("ensureRemote reuses an existing remote across ssh/https transport variants", () =>
       Effect.gen(function* () {
