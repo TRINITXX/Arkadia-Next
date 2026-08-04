@@ -20,6 +20,7 @@ import {
   EventId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  GitManagerError,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
@@ -70,6 +71,7 @@ import {
   projectActivityEvent,
   projectThreadDetailSnapshot,
 } from "./orchestration/ActivityPayloadProjection.ts";
+import { MergeCleanupService } from "./git/MergeCleanupService.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -361,6 +363,7 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+      const mergeCleanupService = yield* MergeCleanupService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -1820,6 +1823,25 @@ const makeWsRpcLayer = (
               .preparePullRequestThread(input)
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitMergeCleanupThread]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitMergeCleanupThread,
+            mergeCleanupService
+              .attempt({ threadId: input.threadId, workspaceRoot: input.cwd })
+              .pipe(
+                Effect.tap(() => refreshGitStatus(input.cwd)),
+                Effect.mapError(
+                  (error) =>
+                    new GitManagerError({
+                      operation: "mergeCleanupThread",
+                      cwd: input.cwd,
+                      detail: error.message,
+                      cause: error,
+                    }),
+                ),
+              ),
+            { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsListRefs]: (input) =>
           observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
