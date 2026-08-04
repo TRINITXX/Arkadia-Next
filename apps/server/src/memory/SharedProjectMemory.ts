@@ -7,6 +7,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -41,8 +42,14 @@ export class SharedProjectMemory extends Context.Service<
   {
     readonly refresh: (cwd: string) => Effect.Effect<SharedMemorySnapshot>;
     readonly read: (cwd: string) => Effect.Effect<string>;
+    readonly streamMemory: (cwd: string) => Effect.Effect<Stream.Stream<SharedMemorySnapshot>>;
   }
 >()("t3/memory/SharedProjectMemory") {}
+
+interface SharedMemoryUpdate {
+  readonly storeDir: string;
+  readonly snapshot: SharedMemorySnapshot;
+}
 
 export const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -61,6 +68,20 @@ export const make = Effect.gen(function* () {
 
   const cacheRef = yield* Ref.make(new Map<string, SharedMemorySnapshot>());
   const watchersRef = yield* Ref.make(new Map<string, Scope.Closeable>());
+
+  // Broadcasts every cache update (initial refresh and every watcher-triggered
+  // refresh) so `streamMemory` subscribers see live updates instead of
+  // polling. Bounded + sliding (drop-oldest): mirrors VcsStatusBroadcaster's
+  // `changesPubSub` (vcs/VcsStatusBroadcaster.ts:187-190) -- a slow
+  // subscriber should lose stale snapshots, not block `refresh`, and a
+  // subscriber that misses an update still catches up via the cache read
+  // `streamMemory` does before subscribing. Capacity 8 matches this repo's
+  // other single-snapshot-per-key broadcast PubSubs (e.g.
+  // resourceTelemetry/ResourceTelemetry.ts:150).
+  const updatesPubSub = yield* Effect.acquireRelease(
+    PubSub.sliding<SharedMemoryUpdate>(8),
+    (pubsub) => PubSub.shutdown(pubsub),
+  );
 
   const readEntry = (provider: string, dir: string, name: string) =>
     Effect.gen(function* () {
@@ -129,6 +150,14 @@ export const make = Effect.gen(function* () {
       // for this storeDir in lockstep with the latest aggregation.
       yield* Ref.update(cacheRef, (cache) => new Map(cache).set(storeDir, snapshot));
 
+      // Fire-and-forget broadcast for `streamMemory` subscribers. `PubSub.publish`
+      // returns `Effect<boolean, never>` (whether the value was accepted) --
+      // it cannot fail, and `PubSub.sliding` never suspends waiting for room,
+      // so this can never make `refresh` fail or block. The boolean is
+      // discarded: a `false` (all subscribers currently backlogged and shut
+      // down) is not actionable here.
+      yield* PubSub.publish(updatesPubSub, { storeDir, snapshot }).pipe(Effect.asVoid);
+
       return snapshot;
     });
 
@@ -174,23 +203,31 @@ export const make = Effect.gen(function* () {
       });
     });
 
+  // Shared by `read` and `streamMemory`: starts the per-storeDir watcher
+  // (initial refresh + debounced fs.watch loop) the first time either is
+  // called for a given project, so updates actually flow into both the
+  // polled `read` cache hit and any live `streamMemory` subscriber. A no-op
+  // once `watchersRef` already has an entry for `storeDir`.
+  const ensureWatcherStarted = (cwd: string, storeDir: string) =>
+    Effect.gen(function* () {
+      const watchers = yield* Ref.get(watchersRef);
+      if (watchers.has(storeDir)) return;
+
+      // Memory augmentation must never block or crash a turn: if starting
+      // the watcher fails for any reason, degrade to a logged warning and
+      // fall through to the (not yet populated) cache -- callers each have
+      // their own direct-refresh fallback for that case. `Effect.catch`
+      // recovers the error channel -- `startWatcher` does not defect, so
+      // this is defensive.
+      yield* startWatcher(cwd, storeDir).pipe(
+        Effect.catch((cause) => Effect.logWarning(`shared memory watcher start skipped: ${cause}`)),
+      );
+    });
+
   const read = (cwd: string) =>
     Effect.gen(function* () {
       const storeDir = yield* paths.resolveStoreDir(cwd);
-      const watchers = yield* Ref.get(watchersRef);
-
-      if (!watchers.has(storeDir)) {
-        // Memory augmentation must never block or crash a turn: if starting
-        // the watcher fails for any reason, degrade to a logged warning and
-        // fall through to the direct-refresh path below instead of the
-        // (not yet populated) cache. `Effect.catch` recovers the error
-        // channel -- `startWatcher` does not defect, so this is defensive.
-        yield* startWatcher(cwd, storeDir).pipe(
-          Effect.catch((cause) =>
-            Effect.logWarning(`shared memory watcher start skipped: ${cause}`),
-          ),
-        );
-      }
+      yield* ensureWatcherStarted(cwd, storeDir);
 
       const cache = yield* Ref.get(cacheRef);
       const cached = cache.get(storeDir);
@@ -204,7 +241,47 @@ export const make = Effect.gen(function* () {
       return yield* refresh(cwd).pipe(Effect.map((snapshot) => snapshot.markdown));
     });
 
-  return SharedProjectMemory.of({ refresh, read });
+  // Emits the current cached snapshot for `cwd`'s storeDir immediately, then
+  // every later update published from `refresh` (watcher-triggered or
+  // direct), filtered to this storeDir. Mirrors VcsStatusBroadcaster's
+  // `streamStatus` (vcs/VcsStatusBroadcaster.ts:556-586): subscribe to the
+  // PubSub *before* reading the "current" value (and before ensuring the
+  // watcher is running, which may itself publish) so an update landing in
+  // that window is never lost -- at worst it is briefly duplicated (the same
+  // snapshot as both the "current" value and the first live update), which
+  // is harmless for a live-state subscriber. The setup itself (resolving
+  // storeDir, subscribing, reading the cache) is deferred via `Stream.unwrap`
+  // to when the stream is actually pulled, exactly like `streamStatus` --
+  // `streamMemory` itself just returns that lazy stream, so it cannot fail
+  // and needs no requirements of its own.
+  const streamMemory: SharedProjectMemory["Service"]["streamMemory"] = (cwd) =>
+    Effect.succeed(
+      Stream.unwrap(
+        Effect.gen(function* () {
+          const storeDir = yield* paths.resolveStoreDir(cwd);
+          const subscription = yield* PubSub.subscribe(updatesPubSub);
+
+          yield* ensureWatcherStarted(cwd, storeDir);
+
+          const cache = yield* Ref.get(cacheRef);
+          const cached = cache.get(storeDir);
+          // Cache miss (watcher failed to start before its initial refresh
+          // could populate the cache, same as `read`'s fallback): refresh
+          // directly so the stream's first element is still correct.
+          const currentSnapshot = cached ? Effect.succeed(cached) : refresh(cwd);
+
+          return Stream.concat(
+            Stream.fromEffect(currentSnapshot),
+            Stream.fromSubscription(subscription).pipe(
+              Stream.filter((update) => update.storeDir === storeDir),
+              Stream.map((update) => update.snapshot),
+            ),
+          );
+        }),
+      ),
+    );
+
+  return SharedProjectMemory.of({ refresh, read, streamMemory });
 });
 
 export const layer = Layer.effect(SharedProjectMemory, make).pipe(
