@@ -19,5 +19,11 @@ export function createGitEnvironmentAtoms<R, E>(
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
     }),
+    mergeCleanupThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:git:merge-cleanup-thread",
+      tag: WS_METHODS.gitMergeCleanupThread,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
   };
 }

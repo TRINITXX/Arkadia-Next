@@ -188,6 +188,27 @@ export interface GitRemoteStatusOptions {
   readonly refreshUpstream?: boolean;
 }
 
+export interface GitDeleteBranchInput {
+  readonly cwd: string;
+  readonly branch: string;
+  readonly force?: boolean;
+}
+
+export interface GitFastForwardBranchInput {
+  readonly cwd: string;
+  readonly branch: string;
+  readonly toRef: string;
+}
+
+export interface GitMergeRefInput {
+  readonly cwd: string;
+  readonly refName: string;
+}
+
+export type GitMergeRefResult =
+  | { readonly status: "merged"; readonly mergeCommitSha: string }
+  | { readonly status: "conflict"; readonly mergeCommitSha: null };
+
 export class GitVcsDriver extends Context.Service<
   GitVcsDriver,
   {
@@ -256,6 +277,13 @@ export class GitVcsDriver extends Context.Service<
     readonly renameBranch: (
       input: GitRenameBranchInput,
     ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;
+    readonly deleteBranch: (input: GitDeleteBranchInput) => Effect.Effect<void, GitCommandError>;
+    readonly fastForwardBranch: (
+      input: GitFastForwardBranchInput,
+    ) => Effect.Effect<void, GitCommandError>;
+    readonly mergeRef: (
+      input: GitMergeRefInput,
+    ) => Effect.Effect<GitMergeRefResult, GitCommandError>;
     readonly createRef: (
       input: VcsCreateRefInput,
     ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;

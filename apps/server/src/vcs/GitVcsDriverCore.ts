@@ -2740,6 +2740,68 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return { branch: targetBranch };
   });
 
+  const deleteBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteBranch"] = Effect.fn(
+    "deleteBranch",
+  )(function* (input) {
+    yield* executeGit(
+      "GitVcsDriver.deleteBranch",
+      input.cwd,
+      ["branch", input.force ? "-D" : "-d", "--", input.branch],
+      { timeoutMs: 10_000, fallbackErrorDetail: "git branch delete failed" },
+    );
+  });
+
+  const fastForwardBranch: GitVcsDriver.GitVcsDriver["Service"]["fastForwardBranch"] = Effect.fn(
+    "fastForwardBranch",
+  )(function* (input) {
+    yield* executeGit(
+      "GitVcsDriver.fastForwardBranch",
+      input.cwd,
+      ["fetch", ".", `${input.toRef}:${input.branch}`],
+      { timeoutMs: 30_000, fallbackErrorDetail: "git fast-forward update failed" },
+    );
+  });
+
+  const mergeRef: GitVcsDriver.GitVcsDriver["Service"]["mergeRef"] = Effect.fn("mergeRef")(
+    function* (input) {
+      const mergeResult = yield* executeGit(
+        "GitVcsDriver.mergeRef",
+        input.cwd,
+        ["merge", "--no-edit", input.refName],
+        { timeoutMs: 60_000, allowNonZeroExit: true, fallbackErrorDetail: "git merge failed" },
+      );
+
+      if (mergeResult.exitCode === 0) {
+        const mergeCommitSha = yield* runGitStdout("GitVcsDriver.mergeRef.head", input.cwd, [
+          "rev-parse",
+          "HEAD",
+        ]).pipe(Effect.map((stdout) => stdout.trim()));
+        return { status: "merged" as const, mergeCommitSha };
+      }
+
+      const unmerged = yield* runGitStdout(
+        "GitVcsDriver.mergeRef.unmerged",
+        input.cwd,
+        ["ls-files", "--unmerged"],
+        true,
+      ).pipe(Effect.map((stdout) => stdout.trim()));
+
+      if (unmerged.length > 0) {
+        return { status: "conflict" as const, mergeCommitSha: null };
+      }
+
+      return yield* new GitCommandError({
+        ...gitCommandContext({
+          operation: "GitVcsDriver.mergeRef",
+          cwd: input.cwd,
+          args: ["merge", "--no-edit", input.refName],
+        }),
+        detail: "git merge failed without producing conflicts.",
+        ...(mergeResult.exitCode === null ? {} : { exitCode: mergeResult.exitCode }),
+      });
+    },
+  );
+
   const switchRef: GitVcsDriver.GitVcsDriver["Service"]["switchRef"] = Effect.fn("switchRef")(
     function* (input) {
       const [localInputExists, remoteExists] = yield* Effect.all(
@@ -2918,6 +2980,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     setBranchUpstream: (input) => withListRefsInvalidation(input.cwd, setBranchUpstream(input)),
     removeWorktree: (input) => withListRefsInvalidation(input.cwd, removeWorktree(input)),
     renameBranch: (input) => withListRefsInvalidation(input.cwd, renameBranch(input)),
+    deleteBranch: (input) => withListRefsInvalidation(input.cwd, deleteBranch(input)),
+    fastForwardBranch: (input) => withListRefsInvalidation(input.cwd, fastForwardBranch(input)),
+    mergeRef: (input) => withListRefsInvalidation(input.cwd, mergeRef(input)),
     createRef: (input) => withListRefsInvalidation(input.cwd, createRef(input)),
     switchRef: (input) => withListRefsInvalidation(input.cwd, switchRef(input)),
     initRepo: initRepoWithListRefsInvalidation,

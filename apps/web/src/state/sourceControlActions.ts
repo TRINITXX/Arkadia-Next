@@ -34,7 +34,8 @@ export type SourceControlActionKind =
   | "pull"
   | "publishRepository"
   | "runStackedAction"
-  | "preparePullRequestThread";
+  | "preparePullRequestThread"
+  | "mergeCleanupThread";
 
 export interface SourceControlActionScope {
   readonly environmentId: EnvironmentId | null;
@@ -61,9 +62,10 @@ const ACTION_OPERATION = {
   publishRepository: "publish_repository",
   runStackedAction: "run_change_request",
   preparePullRequestThread: "prepare_pull_request_thread",
+  mergeCleanupThread: "merge_cleanup_thread",
 } as const satisfies Record<SourceControlActionKind, VcsActionOperation>;
 
-function useAction<
+export function useAction<
   TArgs extends ReadonlyArray<unknown>,
   R extends AtomCommandResult<unknown, unknown>,
 >(input: {
@@ -116,7 +118,7 @@ function useAction<
   };
 }
 
-function resolveScope(scope: SourceControlActionScope) {
+export function resolveScope(scope: SourceControlActionScope) {
   if (scope.environmentId === null || scope.cwd === null) {
     return null;
   }

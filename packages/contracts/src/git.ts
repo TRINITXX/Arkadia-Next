@@ -279,6 +279,17 @@ export const GitPreparePullRequestThreadResult = Schema.Struct({
 });
 export type GitPreparePullRequestThreadResult = typeof GitPreparePullRequestThreadResult.Type;
 
+export const GitMergeCleanupThreadInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  threadId: ThreadId,
+});
+export type GitMergeCleanupThreadInput = typeof GitMergeCleanupThreadInput.Type;
+
+export const GitMergeCleanupThreadResult = Schema.Struct({
+  outcome: Schema.Literals(["completed", "awaiting_conflict"]),
+});
+export type GitMergeCleanupThreadResult = typeof GitMergeCleanupThreadResult.Type;
+
 export const VcsSwitchRefResult = Schema.Struct({
   refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
 });
