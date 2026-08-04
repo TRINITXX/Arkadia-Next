@@ -16,7 +16,7 @@ import {
 } from "../components/terminal/projectTerminalsStore";
 import { useCloseProjectTerminal } from "../components/terminal/useCloseProjectTerminal";
 import { SidebarInset } from "~/components/ui/sidebar";
-import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
+import { useLeaveToNextActiveProject } from "~/hooks/useLeaveToNextActiveProject";
 import { useThreadShells } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { useUiStateStore } from "~/uiStateStore";
@@ -32,7 +32,7 @@ function ProjectTerminalRouteView() {
   const projectId = ProjectId.make(params.projectId);
   const terminalId = params.terminalId;
   const router = useRouter();
-  const handleNewThread = useNewThreadHandler();
+  const leaveToNextActiveProject = useLeaveToNextActiveProject();
   const threads = useThreadShells();
   const lastVisitedAtByThreadKey = useUiStateStore((store) => store.threadLastVisitedAtById);
 
@@ -66,8 +66,10 @@ function ProjectTerminalRouteView() {
       });
       return;
     }
-    void handleNewThread(projectRef, { replace: true });
-  }, [environmentId, handleNewThread, projectRef, returnThreadId, router]);
+    // No conversation to return to in this project: move on to the next active
+    // project (or the empty home page) rather than forcing a new conversation.
+    void leaveToNextActiveProject(scopedProjectKey(projectRef));
+  }, [environmentId, leaveToNextActiveProject, projectRef, returnThreadId, router]);
 
   // Covers a stale link and a tab closed from elsewhere: either way this route
   // has nothing left to render.

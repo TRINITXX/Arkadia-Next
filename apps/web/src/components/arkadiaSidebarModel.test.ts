@@ -8,6 +8,7 @@ import {
   arkadiaProjectColor,
   buildArkadiaSidebarGroups,
   resolveArkadiaActiveProjectLayout,
+  resolveArkadiaNextActiveProject,
   resolveArkadiaThreadIndicator,
   shortenArkadiaProjectPath,
 } from "./arkadiaSidebarModel";
@@ -124,6 +125,56 @@ describe("buildArkadiaSidebarGroups", () => {
     });
 
     expect(groups.active[0]?.threads.map((item) => item.id)).toEqual(["older", "newer"]);
+  });
+
+  it("mirrors the workspace tab order, ignoring non-thread keys", () => {
+    const groups = buildArkadiaSidebarGroups({
+      projects: [project("alpha", "Alpha")],
+      threads: [
+        thread("first", "alpha", { createdAt: "2026-08-01T09:00:00.000Z" }),
+        thread("second", "alpha", { createdAt: "2026-08-02T09:00:00.000Z" }),
+      ],
+      now: NOW,
+      autoSettleAfterDays: 3,
+      // The bar dragged "second" ahead of "first"; the draft key in between is
+      // not a thread and must not disturb the result.
+      tabOrderByProjectKey: {
+        "local:alpha": ["local:second", "draft:whatever", "local:first"],
+      },
+    });
+
+    expect(groups.active[0]?.threads.map((item) => item.id)).toEqual(["second", "first"]);
+  });
+});
+
+describe("resolveArkadiaNextActiveProject", () => {
+  const activeGroups = (
+    projects: ReadonlyArray<EnvironmentProject>,
+    threads: ReadonlyArray<EnvironmentThreadShell>,
+  ) => buildArkadiaSidebarGroups({ projects, threads, now: NOW, autoSettleAfterDays: 3 }).active;
+
+  it("returns the first active project other than the one being emptied", () => {
+    const groups = activeGroups(
+      [project("alpha", "Alpha"), project("beta", "Beta")],
+      [thread("a", "alpha"), thread("b", "beta")],
+    );
+
+    expect(resolveArkadiaNextActiveProject(groups, "local:alpha")?.project.id).toBe("beta");
+  });
+
+  it("returns null when only the excluded project is active", () => {
+    const groups = activeGroups([project("alpha", "Alpha")], [thread("a", "alpha")]);
+
+    expect(resolveArkadiaNextActiveProject(groups, "local:alpha")).toBeNull();
+  });
+
+  it("returns null when there is no active project at all", () => {
+    const groups = activeGroups(
+      [project("alpha", "Alpha")],
+      [thread("settled", "alpha", { settledOverride: "settled" })],
+    );
+
+    expect(resolveArkadiaNextActiveProject(groups, "local:beta")).toBeNull();
   });
 });
 

@@ -4,6 +4,9 @@ import type {
 } from "@t3tools/client-runtime/state/models";
 import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 
+import { getProjectOrderKey } from "../logicalProject";
+import { orderItemsByPreferredIds } from "./Sidebar.logic";
+
 const ARKADIA_PROJECT_COLORS = [
   "#ff6b6b",
   "#ee9b00",
@@ -129,6 +132,24 @@ export function resolveArkadiaTabAfterClose(
   return tabIds[closingIndex + 1] ?? tabIds[closingIndex - 1] ?? null;
 }
 
+/**
+ * The project to fall back on once the last tab of the current project is
+ * closed: the first still-active project other than the one being emptied.
+ * The emptied project is excluded explicitly because the thread that was just
+ * closed is still classified active in the snapshot (settling is async), so it
+ * would otherwise pick itself right back.
+ */
+export function resolveArkadiaNextActiveProject(
+  activeGroups: ReadonlyArray<ArkadiaSidebarProjectGroup>,
+  excludeProjectKey: string,
+): ArkadiaSidebarProjectGroup | null {
+  return (
+    activeGroups.find(
+      (group) => projectKey(group.project) !== excludeProjectKey && group.threads.length > 0,
+    ) ?? null
+  );
+}
+
 export type ArkadiaActiveProjectLayout = "empty" | "solo" | "tabs";
 
 export function resolveArkadiaActiveProjectLayout(threadCount: number): ArkadiaActiveProjectLayout {
@@ -217,6 +238,20 @@ export function buildArkadiaSidebarGroups(input: {
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly now: string;
   readonly autoSettleAfterDays: number | null;
+  /**
+   * Manual project order, as physical project keys (see `getProjectOrderKey`).
+   * Shared with the legacy sidebar's persisted `projectOrder`. Projects listed
+   * here lead, in that order; the rest fall back to alphabetical. Applied
+   * independently within each tab so reordering stays inside Active / Inactive.
+   */
+  readonly projectOrder?: readonly string[];
+  /**
+   * Manual thread order per project (`scopedProjectKey` → ordered tab keys),
+   * shared with the workspace tab bar so dragging a tab reorders its sibling
+   * conversation in the sidebar too. Keys that match no thread here — the draft
+   * or a terminal — are simply ignored, keeping the threads' relative order.
+   */
+  readonly tabOrderByProjectKey?: Readonly<Record<string, readonly string[]>>;
 }): ArkadiaSidebarGroups {
   const visibleThreads = input.threads.filter((thread) => thread.archivedAt === null);
   const activeThreadsByProject = new Map<string, EnvironmentThreadShell[]>();
@@ -244,11 +279,22 @@ export function buildArkadiaSidebarGroups(input: {
     const key = projectKey(project);
     const projectActiveThreads = activeThreadsByProject.get(key) ?? [];
     const projectInactiveThreads = inactiveThreadsByProject.get(key) ?? [];
+    const baseThreads = (
+      projectActiveThreads.length > 0 ? projectActiveThreads : projectInactiveThreads
+    )
+      .slice()
+      .sort(compareThreads);
+    const manualThreadOrder = input.tabOrderByProjectKey?.[key];
     const group = {
       project,
-      threads: (projectActiveThreads.length > 0 ? projectActiveThreads : projectInactiveThreads)
-        .slice()
-        .sort(compareThreads),
+      threads:
+        manualThreadOrder && manualThreadOrder.length > 0
+          ? orderItemsByPreferredIds({
+              items: baseThreads,
+              preferredIds: manualThreadOrder,
+              getId: (thread) => arkadiaWorkspaceTabKey(thread.environmentId, thread.id),
+            })
+          : baseThreads,
       color: arkadiaProjectColor(project.workspaceRoot),
     } satisfies ArkadiaSidebarProjectGroup;
 
@@ -259,9 +305,21 @@ export function buildArkadiaSidebarGroups(input: {
     }
   }
 
+  const applyManualOrder = (groups: ArkadiaSidebarProjectGroup[]): ArkadiaSidebarProjectGroup[] => {
+    const alphabetical = groups.sort(compareProjects);
+    if (!input.projectOrder || input.projectOrder.length === 0) {
+      return alphabetical;
+    }
+    return orderItemsByPreferredIds({
+      items: alphabetical,
+      preferredIds: input.projectOrder,
+      getId: (group) => getProjectOrderKey(group.project),
+    });
+  };
+
   return {
-    active: active.sort(compareProjects),
-    inactive: inactive.sort(compareProjects),
+    active: applyManualOrder(active),
+    inactive: applyManualOrder(inactive),
   };
 }
 

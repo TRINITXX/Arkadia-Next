@@ -8,11 +8,27 @@ import { canSettle, effectiveSettled } from "@t3tools/client-runtime/state/threa
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
+import {
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Plus, SquareTerminalIcon, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useClientSettings } from "../hooks/useSettings";
+import { useLeaveToNextActiveProject } from "../hooks/useLeaveToNextActiveProject";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -28,8 +44,10 @@ import {
   resolveArkadiaTabAfterClose,
   resolveArkadiaThreadIndicator,
 } from "./arkadiaSidebarModel";
+import { orderItemsByPreferredIds } from "./Sidebar.logic";
 import { selectProjectTerminals, useProjectTerminalsStore } from "./terminal/projectTerminalsStore";
 import { useCloseProjectTerminal } from "./terminal/useCloseProjectTerminal";
+import { useWorkspaceTabOrderStore } from "./workspaceTabOrderStore";
 
 interface ArkadiaWorkspaceTabsProps {
   readonly environmentId: EnvironmentId;
@@ -79,6 +97,54 @@ function StatusDot({ thread }: { readonly thread: EnvironmentThreadShell }) {
   );
 }
 
+/**
+ * A single position in the bar, whatever it holds. The three families share one
+ * ordered list so any tab can be dragged in front of any other; the key is
+ * prefixed per family so a terminal id can never collide with a thread key.
+ */
+type WorkspaceTabItem =
+  | { readonly kind: "thread"; readonly key: string; readonly thread: EnvironmentThreadShell }
+  | { readonly kind: "draft"; readonly key: string }
+  | { readonly kind: "terminal"; readonly key: string; readonly terminalId: string };
+
+/** Wraps a tab so it can be picked up and dropped elsewhere in the bar. */
+function SortableWorkspaceTab({
+  id,
+  active,
+  title,
+  onOpen,
+  onMiddleClick,
+  children,
+}: {
+  readonly id: string;
+  readonly active: boolean;
+  readonly title: string;
+  readonly onOpen: () => void;
+  readonly onMiddleClick: () => void;
+  readonly children: ReactNode;
+}) {
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`${workspaceTabClassName(active)} touch-none ${
+        isDragging ? "relative z-10 opacity-70" : ""
+      }`}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      title={title}
+      onClick={onOpen}
+      onAuxClick={(event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        onMiddleClick();
+      }}
+      {...listeners}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function ArkadiaWorkspaceTabs({
   environmentId,
   projectId,
@@ -92,6 +158,7 @@ export default function ArkadiaWorkspaceTabs({
   const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
+  const leaveToNextActiveProject = useLeaveToNextActiveProject();
   const { settleThread } = useThreadActions();
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
     reportFailure: false,
@@ -190,9 +257,17 @@ export default function ArkadiaWorkspaceTabs({
             to: "/$environmentId/$threadId",
             params: buildThreadRouteParams(scopeThreadRef(fallback.environmentId, fallback.id)),
           })
-        : router.navigate({ to: "/" })
+        : leaveToNextActiveProject(scopedProjectKey(projectRef))
     ).then(() => clearDraftThread(visibleDraft.draftId));
-  }, [activeDraftId, clearDraftThread, router, tabs, visibleDraft]);
+  }, [
+    activeDraftId,
+    clearDraftThread,
+    leaveToNextActiveProject,
+    projectRef,
+    router,
+    tabs,
+    visibleDraft,
+  ]);
 
   // Closing a tab always closes it, whatever the agent is doing: the tab
   // disappears from this window immediately, the running agent is stopped, and
@@ -233,12 +308,15 @@ export default function ArkadiaWorkspaceTabs({
         openDraft();
         return;
       }
-      await handleNewThread(projectRef, { replace: true });
+      // Nothing left in this project: let it fall to Inactive and move on to
+      // the next active project (or the empty home page), instead of spawning
+      // a fresh conversation here.
+      await leaveToNextActiveProject(scopedProjectKey(projectRef));
     },
     [
       activeThreadId,
       closeWorkspaceTab,
-      handleNewThread,
+      leaveToNextActiveProject,
       openDraft,
       openThread,
       projectRef,
@@ -287,12 +365,12 @@ export default function ArkadiaWorkspaceTabs({
         openDraft();
         return;
       }
-      void handleNewThread(projectRef, { replace: true });
+      void leaveToNextActiveProject(scopedProjectKey(projectRef));
     },
     [
       activeTerminalId,
       closeProjectTerminal,
-      handleNewThread,
+      leaveToNextActiveProject,
       openDraft,
       openTerminalTab,
       openThread,
@@ -301,6 +379,57 @@ export default function ArkadiaWorkspaceTabs({
       tabs,
       visibleDraft,
     ],
+  );
+
+  // The bar's natural order: conversations by creation date, then the draft,
+  // then the project terminals. This is what the user reorders on top of.
+  const naturalTabItems = useMemo<ReadonlyArray<WorkspaceTabItem>>(() => {
+    const items: WorkspaceTabItem[] = tabs.map((thread) => ({
+      kind: "thread",
+      key: arkadiaWorkspaceTabKey(thread.environmentId, thread.id),
+      thread,
+    }));
+    if (visibleDraft) {
+      items.push({ kind: "draft", key: `draft:${visibleDraft.draftId}` });
+    }
+    for (const terminal of projectTerminals) {
+      items.push({
+        kind: "terminal",
+        key: `terminal:${terminal.terminalId}`,
+        terminalId: terminal.terminalId,
+      });
+    }
+    return items;
+  }, [projectTerminals, tabs, visibleDraft]);
+
+  // Manual drag order, session-local and per project. New tabs the user has not
+  // touched fall in at their natural position; closed ones drop out silently.
+  const projectKey = scopedProjectKey(projectRef);
+  const tabOrder = useWorkspaceTabOrderStore((store) => store.orderByProjectKey[projectKey]);
+  const setTabOrder = useWorkspaceTabOrderStore((store) => store.setOrder);
+  const orderedTabItems = useMemo(
+    () =>
+      orderItemsByPreferredIds({
+        items: naturalTabItems,
+        preferredIds: tabOrder ?? [],
+        getId: (item) => item.key,
+      }),
+    [naturalTabItems, tabOrder],
+  );
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  const handleTabDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const keys = orderedTabItems.map((item) => item.key);
+      const from = keys.indexOf(String(active.id));
+      const to = keys.indexOf(String(over.id));
+      if (from < 0 || to < 0) return;
+      setTabOrder(projectKey, arrayMove(keys, from, to));
+    },
+    [orderedTabItems, projectKey, setTabOrder],
   );
 
   // A closed tab whose conversation is still classified active would resurface
@@ -339,99 +468,108 @@ export default function ArkadiaWorkspaceTabs({
       data-arkadia-workspace-tabs=""
     >
       <div className="scrollbar-none flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden">
-        {tabs.map((thread) => {
-          const active =
-            thread.id === activeThreadId && activeDraftId === null && activeTerminalId === null;
-          return (
-            <div
-              key={`${thread.environmentId}:${thread.id}`}
-              className={workspaceTabClassName(active)}
-              onAuxClick={(event) => {
-                if (event.button !== 1) return;
-                event.preventDefault();
-                void closeThread(thread);
-              }}
-              onClick={() => openThread(thread)}
-              title={thread.title}
-            >
-              <StatusDot thread={thread} />
-              <span className="min-w-0 flex-1 truncate font-medium">{thread.title}</span>
-              <button
-                type="button"
-                aria-label={`Fermer ${thread.title}`}
-                className={workspaceTabCloseClassName(active)}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void closeThread(thread);
-                }}
-              >
-                <X size={12} strokeWidth={2} />
-              </button>
-            </div>
-          );
-        })}
-
-        {visibleDraft ? (
-          <div
-            className={workspaceTabClassName(activeDraftId === visibleDraft.draftId)}
-            onAuxClick={(event) => {
-              if (event.button !== 1) return;
-              event.preventDefault();
-              closeDraft();
-            }}
-            onClick={openDraft}
-            title="Nouvelle conversation"
+        <DndContext
+          collisionDetection={closestCenter}
+          onDragEnd={handleTabDragEnd}
+          sensors={sensors}
+        >
+          <SortableContext
+            items={orderedTabItems.map((item) => item.key)}
+            strategy={horizontalListSortingStrategy}
           >
-            <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
-            <span className="min-w-0 flex-1 truncate font-medium">Nouvelle conversation</span>
-            <button
-              type="button"
-              aria-label="Fermer la nouvelle conversation"
-              className={workspaceTabCloseClassName(activeDraftId === visibleDraft.draftId)}
-              onClick={(event) => {
-                event.stopPropagation();
-                closeDraft();
-              }}
-            >
-              <X size={12} strokeWidth={2} />
-            </button>
-          </div>
-        ) : null}
+            {orderedTabItems.map((item) => {
+              if (item.kind === "thread") {
+                const { thread } = item;
+                const active =
+                  thread.id === activeThreadId &&
+                  activeDraftId === null &&
+                  activeTerminalId === null;
+                return (
+                  <SortableWorkspaceTab
+                    key={item.key}
+                    id={item.key}
+                    active={active}
+                    title={thread.title}
+                    onOpen={() => openThread(thread)}
+                    onMiddleClick={() => void closeThread(thread)}
+                  >
+                    <StatusDot thread={thread} />
+                    <span className="min-w-0 flex-1 truncate font-medium">{thread.title}</span>
+                    <button
+                      type="button"
+                      aria-label={`Fermer ${thread.title}`}
+                      className={workspaceTabCloseClassName(active)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void closeThread(thread);
+                      }}
+                    >
+                      <X size={12} strokeWidth={2} />
+                    </button>
+                  </SortableWorkspaceTab>
+                );
+              }
 
-        {/* Terminals come after the conversations and stay put: they belong to
-            the project, so switching or closing a conversation leaves them
-            exactly where they were. */}
-        {projectTerminals.map((terminal) => {
-          const active = activeTerminalId === terminal.terminalId;
-          const label = getTerminalLabel(terminal.terminalId);
-          return (
-            <div
-              key={terminal.terminalId}
-              className={workspaceTabClassName(active)}
-              onAuxClick={(event) => {
-                if (event.button !== 1) return;
-                event.preventDefault();
-                closeTerminalTab(terminal.terminalId);
-              }}
-              onClick={() => openTerminalTab(terminal.terminalId)}
-              title={label}
-            >
-              <SquareTerminalIcon size={12} className="shrink-0 text-zinc-500" />
-              <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
-              <button
-                type="button"
-                aria-label={`Fermer ${label}`}
-                className={workspaceTabCloseClassName(active)}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  closeTerminalTab(terminal.terminalId);
-                }}
-              >
-                <X size={12} strokeWidth={2} />
-              </button>
-            </div>
-          );
-        })}
+              if (item.kind === "draft") {
+                if (!visibleDraft) return null;
+                const active = activeDraftId === visibleDraft.draftId;
+                return (
+                  <SortableWorkspaceTab
+                    key={item.key}
+                    id={item.key}
+                    active={active}
+                    title="Nouvelle conversation"
+                    onOpen={openDraft}
+                    onMiddleClick={closeDraft}
+                  >
+                    <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      Nouvelle conversation
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Fermer la nouvelle conversation"
+                      className={workspaceTabCloseClassName(active)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        closeDraft();
+                      }}
+                    >
+                      <X size={12} strokeWidth={2} />
+                    </button>
+                  </SortableWorkspaceTab>
+                );
+              }
+
+              const active = activeTerminalId === item.terminalId;
+              const label = getTerminalLabel(item.terminalId);
+              return (
+                <SortableWorkspaceTab
+                  key={item.key}
+                  id={item.key}
+                  active={active}
+                  title={label}
+                  onOpen={() => openTerminalTab(item.terminalId)}
+                  onMiddleClick={() => closeTerminalTab(item.terminalId)}
+                >
+                  <SquareTerminalIcon size={12} className="shrink-0 text-zinc-500" />
+                  <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+                  <button
+                    type="button"
+                    aria-label={`Fermer ${label}`}
+                    className={workspaceTabCloseClassName(active)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeTerminalTab(item.terminalId);
+                    }}
+                  >
+                    <X size={12} strokeWidth={2} />
+                  </button>
+                </SortableWorkspaceTab>
+              );
+            })}
+          </SortableContext>
+        </DndContext>
 
         {/* Never disabled: a project keeps a single pending draft, so the plus
             either opens a brand new conversation or jumps to the one already

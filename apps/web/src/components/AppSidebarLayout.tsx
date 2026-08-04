@@ -15,7 +15,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode } from "../hooks/useSettings";
-import ThreadSidebar from "./Sidebar";
+import { SettingsSidebar } from "./SettingsSidebar";
 import ArkadiaSidebar from "./ArkadiaSidebar";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
@@ -216,7 +216,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             : false
         }
       >
-        {isOnSettings ? <ThreadSidebar /> : <ArkadiaSidebar />}
+        {isOnSettings ? <SettingsSidebar /> : <ArkadiaSidebar />}
         {isOnSettings ? <SidebarRail /> : null}
       </Sidebar>
       {children}
