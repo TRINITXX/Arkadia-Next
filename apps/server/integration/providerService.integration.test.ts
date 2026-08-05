@@ -3,6 +3,7 @@ import { ProviderDriverKind, ProviderInstanceId, ThreadId } from "@t3tools/contr
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, assert } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -26,6 +27,7 @@ import { ServerSettingsService } from "../src/serverSettings.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { SqlitePersistenceMemory } from "../src/persistence/Layers/Sqlite.ts";
 import * as ProviderSessionRuntime from "../src/persistence/ProviderSessionRuntime.ts";
+import * as SharedProjectMemory from "../src/memory/SharedProjectMemory.ts";
 
 import {
   makeTestProviderAdapterHarness,
@@ -72,6 +74,20 @@ const makeIntegrationFixture = Effect.gen(function* () {
     ServerSettingsService.layerTest(DEFAULT_SERVER_SETTINGS),
     AnalyticsService.layerTest,
     Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers),
+    // These turn-behaviour integration tests don't exercise shared memory;
+    // provide a no-op mock (production wires the real `SharedProjectMemory.layer`).
+    Layer.mock(SharedProjectMemory.SharedProjectMemory)({
+      refresh: () =>
+        Effect.succeed({
+          readAt: DateTime.makeUnsafe("1970-01-01T00:00:00.000Z"),
+          markdown: "",
+          entries: [],
+        }),
+      read: () => Effect.succeed(""),
+      streamMemory: () => Effect.succeed(Stream.empty),
+      pinEntry: () => Effect.void,
+      deleteEntry: () => Effect.void,
+    }),
   ).pipe(Layer.provide(SqlitePersistenceMemory));
 
   const layer = makeProviderServiceLive().pipe(Layer.provide(shared));

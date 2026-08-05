@@ -110,7 +110,10 @@ const parseOverrides = (text: string): MemoryOverrides => {
   ) {
     return EMPTY_OVERRIDES;
   }
-  const record = parsed as { pinnedKeys: ReadonlyArray<string>; tombstonedKeys: ReadonlyArray<string> };
+  const record = parsed as {
+    pinnedKeys: ReadonlyArray<string>;
+    tombstonedKeys: ReadonlyArray<string>;
+  };
   return { pinnedKeys: record.pinnedKeys, tombstonedKeys: record.tombstonedKeys };
 };
 
@@ -224,6 +227,7 @@ export const make = Effect.gen(function* () {
   const writeOverrides = (storeDir: string, overrides: MemoryOverrides) =>
     Effect.gen(function* () {
       yield* fs.makeDirectory(storeDir, { recursive: true });
+      // @effect-diagnostics-next-line preferSchemaOverJson:off - internal overrides document round-tripped by the hand-rolled defensive parseOverrides guard.
       yield* fs.writeFileString(overridesFilePath(storeDir), JSON.stringify(overrides));
     }).pipe(
       Effect.catch((cause) => Effect.logWarning(`shared memory overrides write skipped: ${cause}`)),
@@ -256,9 +260,7 @@ export const make = Effect.gen(function* () {
       // around it) can never be re-ingested as a source on the next
       // `refresh` -- no feedback loop.
       const markdown =
-        aggregatedMarkdown.length === 0
-          ? NOTES_TRAILER
-          : `${aggregatedMarkdown}\n${NOTES_TRAILER}`;
+        aggregatedMarkdown.length === 0 ? NOTES_TRAILER : `${aggregatedMarkdown}\n${NOTES_TRAILER}`;
 
       // Persisting the canonical digest is best-effort: memory augmentation must
       // never block or crash a turn, so a write failure (full/read-only disk,

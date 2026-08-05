@@ -42,7 +42,7 @@ export interface SourceControlActionScope {
   readonly cwd: string | null;
 }
 
-interface SourceControlActionState<
+export interface SourceControlActionState<
   TArgs extends ReadonlyArray<unknown>,
   R extends AtomCommandResult<unknown, unknown>,
 > {

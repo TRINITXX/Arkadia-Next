@@ -52,9 +52,7 @@ it.layer(TestLayer, { excludeTestServices: true })("SharedProjectMemory", (it) =
 
         const ws = yield* makeTempDir;
         const claudeMemoryDir = path.join(ws, ".claude", "memory");
-        yield* fileSystem
-          .makeDirectory(claudeMemoryDir, { recursive: true })
-          .pipe(Effect.orDie);
+        yield* fileSystem.makeDirectory(claudeMemoryDir, { recursive: true }).pipe(Effect.orDie);
         yield* fileSystem
           .writeFileString(
             path.join(claudeMemoryDir, "fact.md"),
@@ -74,52 +72,48 @@ it.layer(TestLayer, { excludeTestServices: true })("SharedProjectMemory", (it) =
       }),
   );
 
-  it.effect(
-    "keeps the cached snapshot current after a live filesystem watcher refresh",
-    () =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const memory = yield* SharedProjectMemory.SharedProjectMemory;
+  it.effect("keeps the cached snapshot current after a live filesystem watcher refresh", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const memory = yield* SharedProjectMemory.SharedProjectMemory;
 
-        const ws = yield* makeTempDir;
-        const claudeMemoryDir = path.join(ws, ".claude", "memory");
-        yield* fileSystem
-          .makeDirectory(claudeMemoryDir, { recursive: true })
-          .pipe(Effect.orDie);
-        yield* fileSystem
-          .writeFileString(path.join(claudeMemoryDir, "fact-1.md"), "First shared fact.")
-          .pipe(Effect.orDie);
+      const ws = yield* makeTempDir;
+      const claudeMemoryDir = path.join(ws, ".claude", "memory");
+      yield* fileSystem.makeDirectory(claudeMemoryDir, { recursive: true }).pipe(Effect.orDie);
+      yield* fileSystem
+        .writeFileString(path.join(claudeMemoryDir, "fact-1.md"), "First shared fact.")
+        .pipe(Effect.orDie);
 
-        // First `read` for this project: does the initial refresh (populating
-        // the cache) and starts the debounced `fs.watch` loop over
-        // `claudeMemoryDir` (Task 8). Later `read`s for the same project are
-        // cache hits and no longer re-scan the source dirs.
-        const firstDigest = yield* memory.read(ws);
-        expect(firstDigest).toContain("First shared fact.");
+      // First `read` for this project: does the initial refresh (populating
+      // the cache) and starts the debounced `fs.watch` loop over
+      // `claudeMemoryDir` (Task 8). Later `read`s for the same project are
+      // cache hits and no longer re-scan the source dirs.
+      const firstDigest = yield* memory.read(ws);
+      expect(firstDigest).toContain("First shared fact.");
 
-        // Write a second native fact directly to the source dir, the way a
-        // provider (e.g. Claude Code) would while the server keeps running.
-        yield* fileSystem
-          .writeFileString(path.join(claudeMemoryDir, "fact-2.md"), "Second shared fact.")
-          .pipe(Effect.orDie);
+      // Write a second native fact directly to the source dir, the way a
+      // provider (e.g. Claude Code) would while the server keeps running.
+      yield* fileSystem
+        .writeFileString(path.join(claudeMemoryDir, "fact-2.md"), "Second shared fact.")
+        .pipe(Effect.orDie);
 
-        // The watcher above debounces `fs.watch` events and re-aggregates in
-        // the background; waiting on that non-deterministically (a timed
-        // sleep) would be a flaky test. Instead, exercise the same code path
-        // the watcher loop runs on each debounced event -- `refresh(cwd)`,
-        // which is the single place that writes `cacheRef` (see the comment
-        // on `refresh` in SharedProjectMemory.ts) -- to deterministically
-        // land the second fact in the cache. The live end-to-end watch path
-        // (an actual `fs.watch` event debouncing into this same `refresh`
-        // call) is covered by the Task 8 manual verification, not by this
-        // automated test.
-        yield* memory.refresh(ws);
+      // The watcher above debounces `fs.watch` events and re-aggregates in
+      // the background; waiting on that non-deterministically (a timed
+      // sleep) would be a flaky test. Instead, exercise the same code path
+      // the watcher loop runs on each debounced event -- `refresh(cwd)`,
+      // which is the single place that writes `cacheRef` (see the comment
+      // on `refresh` in SharedProjectMemory.ts) -- to deterministically
+      // land the second fact in the cache. The live end-to-end watch path
+      // (an actual `fs.watch` event debouncing into this same `refresh`
+      // call) is covered by the Task 8 manual verification, not by this
+      // automated test.
+      yield* memory.refresh(ws);
 
-        const digestAfterWatcherRefresh = yield* memory.read(ws);
-        expect(digestAfterWatcherRefresh).toContain("First shared fact.");
-        expect(digestAfterWatcherRefresh).toContain("Second shared fact.");
-      }),
+      const digestAfterWatcherRefresh = yield* memory.read(ws);
+      expect(digestAfterWatcherRefresh).toContain("First shared fact.");
+      expect(digestAfterWatcherRefresh).toContain("Second shared fact.");
+    }),
   );
 
   it.effect(
@@ -132,9 +126,7 @@ it.layer(TestLayer, { excludeTestServices: true })("SharedProjectMemory", (it) =
 
         const ws = yield* makeTempDir;
         const claudeMemoryDir = path.join(ws, ".claude", "memory");
-        yield* fileSystem
-          .makeDirectory(claudeMemoryDir, { recursive: true })
-          .pipe(Effect.orDie);
+        yield* fileSystem.makeDirectory(claudeMemoryDir, { recursive: true }).pipe(Effect.orDie);
         yield* fileSystem
           .writeFileString(path.join(claudeMemoryDir, "fact-1.md"), "Streamed first fact.")
           .pipe(Effect.orDie);
@@ -310,9 +302,7 @@ it.layer(TestLayer, { excludeTestServices: true })("SharedProjectMemory", (it) =
 
         const ws = yield* makeTempDir;
         const claudeMemoryDir = path.join(ws, ".claude", "memory");
-        yield* fileSystem
-          .makeDirectory(claudeMemoryDir, { recursive: true })
-          .pipe(Effect.orDie);
+        yield* fileSystem.makeDirectory(claudeMemoryDir, { recursive: true }).pipe(Effect.orDie);
         yield* fileSystem
           .writeFileString(path.join(claudeMemoryDir, "fact-1.md"), "Deletable fact.")
           .pipe(Effect.orDie);
@@ -346,6 +336,7 @@ it.layer(TestLayer, { excludeTestServices: true })("SharedProjectMemory", (it) =
         const overridesText = yield* fileSystem
           .readFileString(path.join(storeDir, "overrides.json"))
           .pipe(Effect.orDie);
+        // @effect-diagnostics-next-line preferSchemaOverJson:off - reads the persisted overrides fixture directly to assert on-disk shape.
         const overrides = JSON.parse(overridesText) as {
           pinnedKeys: ReadonlyArray<string>;
           tombstonedKeys: ReadonlyArray<string>;

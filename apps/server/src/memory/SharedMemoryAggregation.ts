@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeCrypto from "node:crypto";
+import * as DateTime from "effect/DateTime";
 import type { SharedMemoryEntry } from "@t3tools/contracts";
 
 export interface RawMemoryRecord {
@@ -45,7 +46,7 @@ export function aggregateSharedMemory(
         key,
         text: trimmed,
         provider: r.provider,
-        updatedAt: new Date(r.updatedAtMs).toISOString(),
+        updatedAt: DateTime.formatIso(DateTime.makeUnsafe(r.updatedAtMs)),
         updatedAtMs: r.updatedAtMs,
       });
     }
@@ -83,7 +84,9 @@ export function aggregateSharedMemory(
   }
 
   const markdown =
-    kept.length === 0 ? "" : `# Shared project memory\n\n${kept.map((e) => `- ${e.text}`).join("\n")}\n`;
+    kept.length === 0
+      ? ""
+      : `# Shared project memory\n\n${kept.map((e) => `- ${e.text}`).join("\n")}\n`;
 
   return { entries: kept, markdown, droppedForSize: dropped };
 }

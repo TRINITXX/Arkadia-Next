@@ -1261,7 +1261,7 @@ export function AppearanceSettingsPanel() {
             <div className="flex w-full flex-col gap-2 sm:w-52">
               <Select
                 value={settings.agentFontFamily}
-                onValueChange={(value) => updateSettings({ agentFontFamily: value })}
+                onValueChange={(value) => updateSettings({ agentFontFamily: value as string })}
               >
                 <SelectTrigger className="w-full" aria-label="Agent font family">
                   <SelectValue>
@@ -1323,7 +1323,7 @@ export function AppearanceSettingsPanel() {
             <div className="flex w-full flex-col gap-2 sm:w-52">
               <Select
                 value={settings.terminalFontFamily}
-                onValueChange={(value) => updateSettings({ terminalFontFamily: value })}
+                onValueChange={(value) => updateSettings({ terminalFontFamily: value as string })}
               >
                 <SelectTrigger className="w-full" aria-label="Terminal font family">
                   <SelectValue>

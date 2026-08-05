@@ -349,7 +349,7 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
-const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
+const RuntimeCoreDependenciesBaseLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(ServerSettingsLayerLive),
   Layer.provideMerge(CheckpointingLayerLive),
@@ -382,6 +382,12 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLayerLive),
   Layer.provideMerge(RepositoryIdentityResolver.layer),
+);
+
+// Split from the chain above: Effect's typed `.pipe()` overloads cap at 20
+// arguments, and the layers below would push the single pipe past that limit.
+// Sequential pipes compose identically (left-to-right), preserving layer order.
+const RuntimeCoreDependenciesLive = RuntimeCoreDependenciesBaseLive.pipe(
   // Resolved once per turn at the ProviderService sendTurn chokepoint; needs
   // ServerConfig, FileSystem, Path from the core runtime chain (see
   // WorkspaceFileSystemLayerLive above for the same pattern).

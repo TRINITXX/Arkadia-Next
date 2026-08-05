@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - test drives real filesystem paths.
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
@@ -26,9 +27,11 @@ describe("collectSourceDirs", () => {
       dir: NodePath.join(CODEX_HOME, "memories"),
       kind: "dir",
     });
-    expect(sources.some((source) => source.provider === "claude" && source.dir.includes(NodePath.join("projects")))).toBe(
-      true,
-    );
+    expect(
+      sources.some(
+        (source) => source.provider === "claude" && source.dir.includes(NodePath.join("projects")),
+      ),
+    ).toBe(true);
   });
 
   it("returns the shared notes.md file source for providers with no native memory", () => {

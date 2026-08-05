@@ -9,6 +9,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationThread,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -43,6 +44,7 @@ import {
   NoOpProviderEventLoggers,
   ProviderEventLoggers,
 } from "../src/provider/Layers/ProviderEventLoggers.ts";
+import * as SharedProjectMemory from "../src/memory/SharedProjectMemory.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
@@ -281,18 +283,35 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
     const providerEventLoggersLayer = Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers);
+    // ProviderService resolves shared memory at its sendTurn chokepoint; these
+    // orchestration tests don't exercise memory, so provide a no-op mock
+    // (production wires the real `SharedProjectMemory.layer`).
+    const sharedProjectMemoryTestLayer = Layer.mock(SharedProjectMemory.SharedProjectMemory)({
+      refresh: () =>
+        Effect.succeed({
+          readAt: DateTime.makeUnsafe("1970-01-01T00:00:00.000Z"),
+          markdown: "",
+          entries: [],
+        }),
+      read: () => Effect.succeed(""),
+      streamMemory: () => Effect.succeed(Stream.empty),
+      pinEntry: () => Effect.void,
+      deleteEntry: () => Effect.void,
+    });
     const providerLayer = useRealCodex
       ? makeProviderServiceLive().pipe(
           Layer.provide(providerSessionDirectoryLayer),
           Layer.provide(realCodexRegistry),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(providerEventLoggersLayer),
+          Layer.provide(sharedProjectMemoryTestLayer),
         )
       : makeProviderServiceLive().pipe(
           Layer.provide(providerSessionDirectoryLayer),
           Layer.provide(fakeRegistry!),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(providerEventLoggersLayer),
+          Layer.provide(sharedProjectMemoryTestLayer),
         );
     const providerRegistryLayer = makeProviderRegistryLayer();
 

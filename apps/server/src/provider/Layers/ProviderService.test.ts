@@ -58,8 +58,26 @@ import {
 import * as ServerSettings from "../../serverSettings.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import { makeAdapterRegistryMock } from "../testUtils/providerAdapterRegistryMock.ts";
+import * as DateTime from "effect/DateTime";
+import * as SharedProjectMemory from "../../memory/SharedProjectMemory.ts";
 
 const defaultServerSettingsLayer = ServerSettings.ServerSettingsService.layerTest();
+
+// ProviderService resolves shared project memory at its sendTurn chokepoint;
+// these unit tests don't exercise memory, so provide a no-op mock (mirrors the
+// real `SharedProjectMemory.layer` provided in production `server.ts`).
+const sharedProjectMemoryTestLayer = Layer.mock(SharedProjectMemory.SharedProjectMemory)({
+  refresh: () =>
+    Effect.succeed({
+      readAt: DateTime.makeUnsafe("1970-01-01T00:00:00.000Z"),
+      markdown: "",
+      entries: [],
+    }),
+  read: () => Effect.succeed(""),
+  streamMemory: () => Effect.succeed(Stream.empty),
+  pinEntry: () => Effect.void,
+  deleteEntry: () => Effect.void,
+});
 
 const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
@@ -292,6 +310,7 @@ function makeProviderServiceLayer() {
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(sharedProjectMemoryTestLayer),
         Layer.provideMerge(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -343,6 +362,7 @@ it.effect("ProviderServiceLive catches stopAll failures during shutdown", () =>
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(sharedProjectMemoryTestLayer),
         Layer.provideMerge(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -402,6 +422,7 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
       Layer.provide(providerAdapterLayer),
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(sharedProjectMemoryTestLayer),
       Layer.provide(AnalyticsService.layerTest),
       Layer.provide(
         Layer.succeed(
@@ -486,6 +507,7 @@ it.effect(
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(serverSettingsLayer),
+        Layer.provide(sharedProjectMemoryTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -556,6 +578,7 @@ it.effect("ProviderServiceLive rejects new sessions for disabled custom instance
       Layer.provide(providerAdapterLayer),
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(sharedProjectMemoryTestLayer),
       Layer.provide(AnalyticsService.layerTest),
       Layer.provide(
         Layer.succeed(
@@ -611,6 +634,7 @@ it.effect("ProviderServiceLive writes canonical events to the emitting thread se
       Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(sharedProjectMemoryTestLayer),
       Layer.provide(AnalyticsService.layerTest),
       Layer.provide(
         Layer.succeed(
@@ -671,6 +695,7 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
       Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
       Layer.provide(directoryLayer),
       Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(sharedProjectMemoryTestLayer),
       Layer.provide(AnalyticsService.layerTest),
       Layer.provide(
         Layer.succeed(
@@ -737,6 +762,7 @@ it.effect(
         ),
         Layer.provide(firstDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(sharedProjectMemoryTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -796,6 +822,7 @@ it.effect(
         ),
         Layer.provide(secondDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(sharedProjectMemoryTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -1307,6 +1334,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         ),
         Layer.provide(firstDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(sharedProjectMemoryTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -1345,6 +1373,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         ),
         Layer.provide(secondDirectoryLayer),
         Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(sharedProjectMemoryTestLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(
           Layer.succeed(
@@ -1413,6 +1442,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
           ),
           Layer.provide(firstDirectoryLayer),
           Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(sharedProjectMemoryTestLayer),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(
             Layer.succeed(
@@ -1446,6 +1476,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
           ),
           Layer.provide(secondDirectoryLayer),
           Layer.provide(defaultServerSettingsLayer),
+          Layer.provide(sharedProjectMemoryTestLayer),
           Layer.provide(AnalyticsService.layerTest),
           Layer.provide(
             Layer.succeed(

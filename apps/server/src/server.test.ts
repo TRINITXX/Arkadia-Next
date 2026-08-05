@@ -80,6 +80,7 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as GitManager from "./git/GitManager.ts";
 import { MergeCleanupService } from "./git/MergeCleanupService.ts";
 import * as Keybindings from "./keybindings.ts";
+import * as SharedProjectMemory from "./memory/SharedProjectMemory.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
@@ -560,15 +561,28 @@ const buildAppUnderTest = (options?: {
         disableLogger: true,
       },
     ).pipe(
+      // SharedProjectMemory and Keybindings are merged into a single
+      // `Layer.provide` (rather than two) to keep this `.pipe()` at 20
+      // arguments — Effect's typed pipe overloads cap there. Both are
+      // independent mocks, so merging is order-agnostic.
       Layer.provide(
-        Layer.mock(Keybindings.Keybindings)({
-          loadConfigState: Effect.succeed({
-            keybindings: [],
-            issues: [],
+        Layer.mergeAll(
+          Layer.mock(SharedProjectMemory.SharedProjectMemory)({
+            refresh: () => Effect.succeed({ readAt: TEST_EPOCH, markdown: "", entries: [] }),
+            read: () => Effect.succeed(""),
+            streamMemory: () => Effect.succeed(Stream.empty),
+            pinEntry: () => Effect.void,
+            deleteEntry: () => Effect.void,
           }),
-          streamChanges: Stream.empty,
-          ...options?.layers?.keybindings,
-        }),
+          Layer.mock(Keybindings.Keybindings)({
+            loadConfigState: Effect.succeed({
+              keybindings: [],
+              issues: [],
+            }),
+            streamChanges: Stream.empty,
+            ...options?.layers?.keybindings,
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ProviderRegistry.ProviderRegistry)({
