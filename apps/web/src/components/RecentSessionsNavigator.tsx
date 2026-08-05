@@ -94,12 +94,31 @@ export interface RecentSessionsNavigatorProps {
   readonly onFocusOpenThread: (ref: ScopedThreadRef) => boolean;
 }
 
+export function resumeRecentSession(input: {
+  readonly ref: ScopedThreadRef;
+  readonly available: boolean;
+  readonly onResume: (ref: ScopedThreadRef) => void;
+  readonly onFocusOpenThread: (ref: ScopedThreadRef) => boolean;
+  readonly onClose: () => void;
+}): "focused" | "resumed" | "unavailable" {
+  if (!input.available) return "unavailable";
+  if (input.onFocusOpenThread(input.ref)) {
+    input.onClose();
+    return "focused";
+  }
+  input.onResume(input.ref);
+  input.onClose();
+  return "resumed";
+}
+
 export function RecentSessionsNavigator({
   open,
   onClose,
   threads,
   projects,
   environmentIds,
+  onResume,
+  onFocusOpenThread,
 }: RecentSessionsNavigatorProps) {
   const [state, dispatch] = useReducer(
     reduceRecentSessionsNavigatorState,
@@ -144,6 +163,9 @@ export function RecentSessionsNavigator({
       onQueryChange={(query) => dispatch({ type: "query-changed", query })}
       onGroupingChange={(grouping) => dispatch({ type: "grouping-changed", grouping })}
       onSelect={(key) => dispatch({ type: "session-selected", key })}
+      environmentIds={environmentIds}
+      onResume={onResume}
+      onFocusOpenThread={onFocusOpenThread}
     />
   );
 }
@@ -159,6 +181,9 @@ interface RecentSessionsNavigatorViewProps {
   readonly onQueryChange: (query: string) => void;
   readonly onGroupingChange: (grouping: RecentSessionGroupingMode) => void;
   readonly onSelect: (key: string) => void;
+  readonly environmentIds: ReadonlyArray<EnvironmentId>;
+  readonly onResume: (ref: ScopedThreadRef) => void;
+  readonly onFocusOpenThread: (ref: ScopedThreadRef) => boolean;
 }
 
 export function RecentSessionsNavigatorView({
@@ -172,6 +197,9 @@ export function RecentSessionsNavigatorView({
   onQueryChange,
   onGroupingChange,
   onSelect,
+  environmentIds,
+  onResume,
+  onFocusOpenThread,
 }: RecentSessionsNavigatorViewProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -301,7 +329,17 @@ export function RecentSessionsNavigatorView({
             )}
           </div>
         </div>
-        <RecentSessionPreview row={viewModel.selectedRow} threadDetail={threadDetail} />
+        <RecentSessionPreview
+          row={viewModel.selectedRow}
+          threadDetail={threadDetail}
+          available={
+            viewModel.selectedRow !== null &&
+            environmentIds.includes(viewModel.selectedRow.ref.environmentId)
+          }
+          onResume={onResume}
+          onFocusOpenThread={onFocusOpenThread}
+          onClose={onClose}
+        />
       </section>
     </div>
   );
@@ -373,9 +411,17 @@ export function RecentSessionRowButton({
 function RecentSessionPreview({
   row,
   threadDetail,
+  available,
+  onResume,
+  onFocusOpenThread,
+  onClose,
 }: {
   readonly row: RecentSessionRow | null;
   readonly threadDetail: ThreadDetailView;
+  readonly available: boolean;
+  readonly onResume: (ref: ScopedThreadRef) => void;
+  readonly onFocusOpenThread: (ref: ScopedThreadRef) => boolean;
+  readonly onClose: () => void;
 }) {
   if (row === null) {
     return (
@@ -410,6 +456,30 @@ function RecentSessionPreview({
           />
         )}
       </div>
+      <footer className="border-t border-border/65 px-5 py-3">
+        <button
+          type="button"
+          disabled={!available}
+          className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+          onClick={() =>
+            resumeRecentSession({
+              ref: row.ref,
+              available,
+              onResume,
+              onFocusOpenThread,
+              onClose,
+            })
+          }
+        >
+          Reprendre la conversation
+        </button>
+        {!available ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Le fournisseur d’origine n’est pas disponible : reconnectez son environnement pour
+            reprendre cette conversation.
+          </p>
+        ) : null}
+      </footer>
     </div>
   );
 }

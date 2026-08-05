@@ -12,6 +12,7 @@ import {
   RecentSessionRowButton,
   RecentSessionsNavigatorView,
   reduceRecentSessionsNavigatorState,
+  resumeRecentSession,
 } from "./RecentSessionsNavigator";
 
 function project(id: string, title: string): EnvironmentProject {
@@ -173,6 +174,9 @@ describe("RecentSessionsNavigator", () => {
         onQueryChange={() => {}}
         onGroupingChange={() => {}}
         onSelect={() => {}}
+        environmentIds={["local"] as never}
+        onResume={() => {}}
+        onFocusOpenThread={() => false}
       />,
     );
 
@@ -181,5 +185,79 @@ describe("RecentSessionsNavigator", () => {
     expect(markup).toContain("gpt-5.6");
     expect(markup).toContain("Arkadia Next");
     expect(markup).toContain("Chargement de la conversation");
+  });
+
+  it("focuses an existing tab without resuming a second copy, then closes", () => {
+    const onResume = vi.fn();
+    const onClose = vi.fn();
+    const onFocusOpenThread = vi.fn(() => true);
+    const ref = { environmentId: "local", threadId: "newest" } as never;
+
+    expect(
+      resumeRecentSession({
+        ref,
+        available: true,
+        onResume,
+        onFocusOpenThread,
+        onClose,
+      }),
+    ).toBe("focused");
+    expect(onFocusOpenThread).toHaveBeenCalledOnce();
+    expect(onResume).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("resumes a closed session in its origin and closes without duplicating a tab", () => {
+    const onResume = vi.fn();
+    const onClose = vi.fn();
+    const onFocusOpenThread = vi.fn(() => false);
+    const ref = { environmentId: "local", threadId: "older" } as never;
+
+    expect(
+      resumeRecentSession({
+        ref,
+        available: true,
+        onResume,
+        onFocusOpenThread,
+        onClose,
+      }),
+    ).toBe("resumed");
+    expect(onFocusOpenThread).toHaveBeenCalledOnce();
+    expect(onResume).toHaveBeenCalledExactlyOnceWith(ref);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("disables resume and explains when the origin provider is unavailable", () => {
+    const onResume = vi.fn();
+    const onFocusOpenThread = vi.fn(() => false);
+    const viewModel = deriveRecentSessionsNavigatorViewModel({
+      threads,
+      projects,
+      contentMatches: [],
+      state: createInitialRecentSessionsNavigatorState(),
+      now: new Date("2026-08-05T13:00:00.000Z"),
+    });
+    const markup = renderToStaticMarkup(
+      <RecentSessionsNavigatorView
+        open
+        query=""
+        grouping="date"
+        viewModel={viewModel}
+        threadDetail={{ data: null, error: null, isPending: false, isDeleted: false }}
+        onClose={() => {}}
+        onQueryChange={() => {}}
+        onGroupingChange={() => {}}
+        onSelect={() => {}}
+        environmentIds={[]}
+        onResume={onResume}
+        onFocusOpenThread={onFocusOpenThread}
+      />,
+    );
+
+    expect(markup).toContain("Reprendre la conversation");
+    expect(markup).toContain("fournisseur d’origine n’est pas disponible");
+    expect(markup).toContain("disabled");
+    expect(onResume).not.toHaveBeenCalled();
+    expect(onFocusOpenThread).not.toHaveBeenCalled();
   });
 });
