@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { HERMES_OPENAI_CODEX_MODEL } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as EffectAcpErrors from "effect-acp/errors";
 
@@ -10,8 +11,8 @@ import {
 
 describe("resolveHermesAcpBaseModelId", () => {
   it("normalizes empty and custom Hermes model ids", () => {
-    expect(resolveHermesAcpBaseModelId(undefined)).toBe("nous:deepseek/deepseek-v4-flash-0731");
-    expect(resolveHermesAcpBaseModelId("   ")).toBe("nous:deepseek/deepseek-v4-flash-0731");
+    expect(resolveHermesAcpBaseModelId(undefined)).toBe(HERMES_OPENAI_CODEX_MODEL);
+    expect(resolveHermesAcpBaseModelId("   ")).toBe(HERMES_OPENAI_CODEX_MODEL);
     expect(resolveHermesAcpBaseModelId("  nous:deepseek/deepseek-v4-pro  ")).toBe(
       "nous:deepseek/deepseek-v4-pro",
     );

@@ -82,15 +82,20 @@
         width: 64px;
         height: 64px;
         object-fit: contain;
+        filter: invert(1);
+      }
+
+      html.dark #boot-shell-logo {
+        filter: none;
       }
     </style>
-    <title>T3 Code (Alpha)</title>
+    <title>Arkadia</title>
   </head>
   <body>
     <div id="root">
       <div id="boot-shell">
-        <div id="boot-shell-card" aria-label="T3 Code splash screen">
-          <img id="boot-shell-logo" src="/apple-touch-icon.png" alt="T3 Code" />
+        <div id="boot-shell-card" aria-label="Arkadia splash screen">
+          <img id="boot-shell-logo" src="/apple-touch-icon.png" alt="Arkadia" />
         </div>
       </div>
     </div>

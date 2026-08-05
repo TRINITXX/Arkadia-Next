@@ -21,6 +21,7 @@ import {
   dismissBranchMismatchForSession,
   getStartedThreadModelChangeBlockReason,
   hasServerAcknowledgedLocalDispatch,
+  isChatViewWorking,
   isBranchMismatchDismissedForSession,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
@@ -29,6 +30,19 @@ import {
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
+
+describe("isChatViewWorking", () => {
+  it("keeps the working state visible while a new session is starting", () => {
+    expect(
+      isChatViewWorking({
+        isConnecting: false,
+        isRevertingCheckpoint: false,
+        isSendBusy: false,
+        phase: "connecting",
+      }),
+    ).toBe(true);
+  });
+});
 
 const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");

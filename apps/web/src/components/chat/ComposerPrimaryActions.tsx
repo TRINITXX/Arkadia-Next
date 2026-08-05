@@ -51,6 +51,13 @@ export const formatPendingPrimaryActionLabel = (input: {
   return input.questionIndex > 0 ? "Submit answers" : "Submit answer";
 };
 
+export function shouldShowComposerStopAction(input: {
+  isRunning: boolean;
+  isConnecting: boolean;
+}): boolean {
+  return input.isRunning || input.isConnecting;
+}
+
 const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
   event.preventDefault();
 };
@@ -132,7 +139,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     );
   }
 
-  if (isRunning) {
+  if (shouldShowComposerStopAction({ isConnecting, isRunning })) {
     return (
       <button
         type="button"

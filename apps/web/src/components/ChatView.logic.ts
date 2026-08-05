@@ -120,6 +120,21 @@ export function buildThreadTurnInterruptInput(thread: Pick<Thread, "id" | "sessi
   };
 }
 
+export function isChatViewWorking(input: {
+  phase: SessionPhase;
+  isSendBusy: boolean;
+  isConnecting: boolean;
+  isRevertingCheckpoint: boolean;
+}): boolean {
+  return (
+    input.phase === "running" ||
+    input.phase === "connecting" ||
+    input.isSendBusy ||
+    input.isConnecting ||
+    input.isRevertingCheckpoint
+  );
+}
+
 export function reconcileMountedTerminalThreadIds(input: {
   currentThreadIds: ReadonlyArray<string>;
   openThreadIds: ReadonlyArray<string>;

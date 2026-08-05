@@ -1,4 +1,5 @@
 import {
+  HERMES_OPENAI_CODEX_MODEL,
   type HermesSettings,
   type ModelCapabilities,
   type ServerProvider,
@@ -49,8 +50,17 @@ const DEFAULT_REMOTE_BINARY = "hermes";
 
 const HERMES_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
+    slug: HERMES_OPENAI_CODEX_MODEL,
+    name: "GPT-5.6 Luna (OpenAI Codex)",
+    subProvider: "OpenAI Codex",
+    isCustom: false,
+    isDefault: true,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+  {
     slug: "nous:deepseek/deepseek-v4-flash-0731",
     name: "DeepSeek V4 Flash (Nous)",
+    subProvider: "Nous",
     isCustom: false,
     capabilities: EMPTY_CAPABILITIES,
   },
@@ -108,7 +118,15 @@ export function buildHermesDiscoveredModelsFromSessionModelState(
   if (!modelState || modelState.availableModels.length === 0) {
     return [];
   }
-  const currentModelSlug = resolveHermesAcpBaseModelId(modelState.currentModelId);
+  const currentModelSlug = modelState.currentModelId?.trim()
+    ? resolveHermesAcpBaseModelId(modelState.currentModelId)
+    : undefined;
+  const discoveredSlugs = new Set(
+    modelState.availableModels.map((model) => resolveHermesAcpBaseModelId(model.modelId)),
+  );
+  const preferredDefaultSlug = discoveredSlugs.has(HERMES_OPENAI_CODEX_MODEL)
+    ? HERMES_OPENAI_CODEX_MODEL
+    : (currentModelSlug ?? resolveHermesAcpBaseModelId(modelState.availableModels[0]?.modelId));
   const seen = new Set<string>();
   return modelState.availableModels
     .map((model): ServerProviderModel | undefined => {
@@ -120,8 +138,13 @@ export function buildHermesDiscoveredModelsFromSessionModelState(
       return {
         slug,
         name: model.name.trim() || slug,
+        ...(slug === HERMES_OPENAI_CODEX_MODEL
+          ? { subProvider: "OpenAI Codex" }
+          : slug.startsWith("nous:")
+            ? { subProvider: "Nous" }
+            : {}),
         isCustom: false,
-        ...(slug === currentModelSlug ? { isDefault: true } : {}),
+        ...(slug === preferredDefaultSlug ? { isDefault: true } : {}),
         capabilities: EMPTY_CAPABILITIES,
       };
     })

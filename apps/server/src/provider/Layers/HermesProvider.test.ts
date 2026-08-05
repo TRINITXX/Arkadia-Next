@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { HermesSettings } from "@t3tools/contracts";
+import { HermesSettings, HERMES_OPENAI_CODEX_MODEL } from "@t3tools/contracts";
 
 import {
   buildHermesDiscoveredModelsFromSessionModelState,
@@ -38,6 +38,17 @@ describe("buildInitialHermesProviderSnapshot", () => {
       expect(snapshot.requiresNewThreadForModelChange).toBe(true);
     }),
   );
+
+  it.effect("keeps the OpenAI Codex route first in the fallback model list", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* buildInitialHermesProviderSnapshot(decodeHermesSettings({}));
+      expect(snapshot.models.map(({ slug }) => slug)).toEqual([
+        HERMES_OPENAI_CODEX_MODEL,
+        "nous:deepseek/deepseek-v4-flash-0731",
+      ]);
+      expect(snapshot.models[0]?.isDefault).toBe(true);
+    }),
+  );
 });
 
 describe("buildHermesDiscoveredModelsFromSessionModelState", () => {
@@ -63,6 +74,37 @@ describe("buildHermesDiscoveredModelsFromSessionModelState", () => {
       },
       {
         slug: "nous:deepseek/deepseek-v4-pro",
+        isDefault: true,
+      },
+    ]);
+  });
+
+  it("prefers the OpenAI Codex route when ACP exposes it", () => {
+    const models = buildHermesDiscoveredModelsFromSessionModelState({
+      currentModelId: "nous:deepseek/deepseek-v4-flash-0731",
+      availableModels: [
+        {
+          modelId: "nous:deepseek/deepseek-v4-flash-0731",
+          name: "DeepSeek V4 Flash",
+        },
+        {
+          modelId: HERMES_OPENAI_CODEX_MODEL,
+          name: "OpenAI Codex · gpt-5.6-luna",
+        },
+      ],
+    });
+
+    expect(
+      models.map(({ slug, subProvider, isDefault }) => ({ slug, subProvider, isDefault })),
+    ).toEqual([
+      {
+        slug: "nous:deepseek/deepseek-v4-flash-0731",
+        subProvider: "Nous",
+        isDefault: undefined,
+      },
+      {
+        slug: HERMES_OPENAI_CODEX_MODEL,
+        subProvider: "OpenAI Codex",
         isDefault: true,
       },
     ]);
@@ -137,6 +179,7 @@ it.layer(NodeServices.layer)("checkHermesProviderStatus", (it) => {
       expect(snapshot.status).toBe("error");
       expect(snapshot.installed).toBe(true);
       expect(snapshot.models.map((model) => model.slug)).toEqual([
+        HERMES_OPENAI_CODEX_MODEL,
         "nous:deepseek/deepseek-v4-flash-0731",
       ]);
       expect(snapshot.message).toContain("ACP startup failed");

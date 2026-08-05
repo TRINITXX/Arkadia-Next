@@ -59,6 +59,22 @@ describe("Arkadia recent sessions entry point", () => {
     expect(arkadiaSidebarSource).toContain("terminalsByProjectKey");
   });
 
+  it("does not highlight the active project while one of its tabs is active", () => {
+    expect(arkadiaSidebarSource).toContain(
+      "projectIsCurrent={key === selectedProjectKey && activeTabKey === null}",
+    );
+  });
+
+  it("combines a project's only active tab into one highlighted block", () => {
+    expect(arkadiaSidebarSource).toContain("const singleTabProject = group.tabs.length === 1;");
+    expect(arkadiaSidebarSource).toContain('singleTabProjectIsCurrent ? "bg-zinc-800" : ""');
+  });
+
+  it("keeps a single-tab project on one hover surface", () => {
+    expect(arkadiaSidebarSource).toContain("const singleTabProject = group.tabs.length === 1;");
+    expect(arkadiaSidebarSource).toContain('singleTabProject ? "hover:bg-zinc-900" : ""');
+  });
+
   it("starts fallback navigation before clearing the active draft", () => {
     expect(arkadiaSidebarSource).toContain("closeArkadiaDraftTab");
     expect(arkadiaSidebarSource).toMatch(

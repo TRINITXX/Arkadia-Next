@@ -137,18 +137,27 @@ function ActiveProjectGroup(props: {
     onCloseProject,
     onCloseTab,
   } = props;
+  const singleTabProject = group.tabs.length === 1;
+  const singleActiveTab = singleTabProject && group.tabs[0]?.key === activeTabKey;
+  const singleTabProjectIsCurrent = singleActiveTab || projectIsCurrent;
 
   return (
     <div
-      className="mx-1.5 mb-2 rounded-r border-l-[3px] pl-1.5 pr-1"
+      className={`mx-1.5 mb-2 rounded-r border-l-[3px] pl-1.5 pr-1 ${singleTabProject ? "overflow-hidden" : ""} ${
+        singleTabProjectIsCurrent ? "bg-zinc-800" : ""
+      } ${singleTabProject ? "hover:bg-zinc-900" : ""}`}
       style={{ borderLeftColor: group.color }}
     >
       <div className="group/close relative">
         <button
           className={`flex w-full cursor-pointer items-center rounded px-1.5 py-1 text-left text-[13px] ${
-            projectIsCurrent
-              ? "bg-zinc-800 text-zinc-100"
-              : "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100"
+            singleTabProject
+              ? singleTabProjectIsCurrent
+                ? "text-zinc-100"
+                : "text-zinc-300"
+              : projectIsCurrent
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100"
           }`}
           onClick={() => onOpenProject(group)}
           onMouseDown={(event) => {
@@ -176,13 +185,18 @@ function ActiveProjectGroup(props: {
                 ? "Nouvelle conversation"
                 : getTerminalLabel(tab.terminalId);
           const canClose = tab.kind !== "draft" || canCloseArkadiaDraftTab(group.tabs, tab.key);
+          const isActive = tab.key === activeTabKey;
           return (
             <div key={tab.key} className="group/close relative">
               <button
                 className={`flex w-full items-center gap-2 rounded px-1.5 py-[3px] text-left text-xs ${
-                  tab.key === activeTabKey
-                    ? "bg-zinc-800 text-zinc-100"
-                    : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                  singleTabProject
+                    ? singleTabProjectIsCurrent
+                      ? "text-zinc-100"
+                      : "text-zinc-400"
+                    : isActive
+                      ? "bg-zinc-800 text-zinc-100"
+                      : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
                 }`}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -811,7 +825,7 @@ export default function ArkadiaSidebar() {
                         <ActiveProjectGroup
                           activeTabKey={activeTabKey}
                           group={group}
-                          projectIsCurrent={key === selectedProjectKey}
+                          projectIsCurrent={key === selectedProjectKey && activeTabKey === null}
                           onOpenProject={openProject}
                           onOpenTab={openTab}
                           onCloseProject={closeProject}

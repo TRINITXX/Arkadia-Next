@@ -1,4 +1,8 @@
-import { type HermesSettings, ProviderDriverKind } from "@t3tools/contracts";
+import {
+  HERMES_OPENAI_CODEX_MODEL,
+  type HermesSettings,
+  ProviderDriverKind,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -20,9 +24,8 @@ import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 const HERMES_AUTH_METHOD_ID = "nous";
 const HERMES_DRIVER_KIND = ProviderDriverKind.make("hermes");
 
-/** Fallback model when nothing is discovered; the Hermes session already
- * defaults to this DeepSeek build server-side (provider `nous`). */
-const HERMES_DEFAULT_BASE_MODEL = "nous:deepseek/deepseek-v4-flash-0731";
+/** Default model when Arkadia has no live ACP model list to choose from. */
+const HERMES_DEFAULT_BASE_MODEL = HERMES_OPENAI_CODEX_MODEL;
 
 /** Defaults, kept in sync with {@link HermesSettings}. */
 const DEFAULT_SSH_BINARY = "ssh";

@@ -139,6 +139,7 @@ import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
+import AgentTasksBar, { hasActiveAgentTasks } from "./AgentTasksBar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { ChevronDownIcon, GitBranchIcon, TriangleAlertIcon, WifiOffIcon } from "lucide-react";
 import { cn, randomHex } from "~/lib/utils";
@@ -240,6 +241,7 @@ import {
   deriveComposerSendState,
   dismissBranchMismatchForSession,
   hasServerAcknowledgedLocalDispatch,
+  isChatViewWorking,
   isBranchMismatchDismissedForSession,
   shouldShowBranchMismatchBanner,
   getStartedThreadModelChangeBlockReason,
@@ -1277,7 +1279,6 @@ function ChatViewContent(props: ChatViewProps) {
   const [localServerErrorsByThreadKey, setLocalServerErrorsByThreadKey] = useState<
     Record<string, LocalThreadErrorEntry>
   >({});
-  const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
   const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
     null,
@@ -2028,6 +2029,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const selectedProvider: ProviderDriverKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
+  const isConnecting = phase === "connecting";
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
   const pendingApprovals = useMemo(
@@ -2095,6 +2097,7 @@ function ChatViewContent(props: ChatViewProps) {
     [activeLatestTurn?.turnId, threadActivities],
   );
   const planSidebarLabel = sidebarProposedPlan || interactionMode === "plan" ? "Plan" : "Tasks";
+  const showAgentTasks = planSidebarLabel === "Tasks" && hasActiveAgentTasks(activePlan);
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -2115,7 +2118,12 @@ function ChatViewContent(props: ChatViewProps) {
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError,
   });
-  const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const isWorking = isChatViewWorking({
+    isConnecting,
+    isRevertingCheckpoint,
+    isSendBusy,
+    phase,
+  });
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -3779,11 +3787,12 @@ function ChatViewContent(props: ChatViewProps) {
     // activeThreadRef resets transitively with the active thread.
   }, [activeThread?.id]);
 
-  // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
-  // Don't auto-open for plans carried over from a previous turn (the user can open manually).
+  // Auto-open the plan sidebar for Plan mode and proposed markdown plans. Live
+  // Tasks are rendered in the composer dock instead.
   useEffect(() => {
     if (!autoOpenPlanSidebar) return;
     if (!activePlan) return;
+    if (planSidebarLabel === "Tasks") return;
     if (planSidebarOpen) return;
     const latestTurnId = activeLatestTurn?.turnId ?? null;
     if (latestTurnId && activePlan.turnId !== latestTurnId) return;
@@ -3798,8 +3807,17 @@ function ChatViewContent(props: ChatViewProps) {
     activeThreadRef,
     autoOpenPlanSidebar,
     planSidebarOpen,
+    planSidebarLabel,
     sidebarProposedPlan?.turnId,
   ]);
+
+  // Tasks are rendered in the composer dock. If an older session still has the
+  // plan surface open, close only that Tasks-shaped surface while preserving
+  // the right panel for a proposed markdown plan.
+  useEffect(() => {
+    if (!activeThreadRef || !planSidebarOpen || planSidebarLabel !== "Tasks") return;
+    useRightPanelStore.getState().close(activeThreadRef);
+  }, [activeThreadRef, planSidebarLabel, planSidebarOpen]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -5687,6 +5705,11 @@ function ChatViewContent(props: ChatViewProps) {
                   )}
                   {threadSyncPhase && !activeEnvironmentUnavailable ? (
                     <ThreadSyncStatusPill phase={threadSyncPhase} />
+                  ) : null}
+                  {!isDraftHeroState && showAgentTasks ? (
+                    <div className="mb-1.5 flex w-full justify-start">
+                      <AgentTasksBar plan={activePlan} />
+                    </div>
                   ) : null}
                   <div
                     className="relative"

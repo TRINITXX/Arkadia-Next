@@ -147,6 +147,7 @@ export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
   "gpt-5.6-terra",
 ];
 export const DEFAULT_TEXT_GENERATION_MODEL = "gpt-5.6-luna";
+export const HERMES_OPENAI_CODEX_MODEL = "openai-codex:gpt-5.6-luna";
 
 export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, string>> = {
   [CODEX_DRIVER_KIND]: DEFAULT_MODEL,
@@ -154,7 +155,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [KIMI_DRIVER_KIND]: "k3[1m]",
   [CURSOR_DRIVER_KIND]: "auto",
   [GROK_DRIVER_KIND]: "grok-build",
-  [HERMES_DRIVER_KIND]: "nous:deepseek/deepseek-v4-flash-0731",
+  [HERMES_DRIVER_KIND]: HERMES_OPENAI_CODEX_MODEL,
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
 };
 

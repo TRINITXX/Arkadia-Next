@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
+import {
+  formatPendingPrimaryActionLabel,
+  shouldShowComposerStopAction,
+} from "./ComposerPrimaryActions";
+
+describe("shouldShowComposerStopAction", () => {
+  it("shows stop while a new session is connecting", () => {
+    expect(
+      shouldShowComposerStopAction({
+        isConnecting: true,
+        isRunning: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the send action for an idle composer", () => {
+    expect(
+      shouldShowComposerStopAction({
+        isConnecting: false,
+        isRunning: false,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("formatPendingPrimaryActionLabel", () => {
   it("returns 'Submitting...' while responding", () => {
