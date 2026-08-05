@@ -1,8 +1,10 @@
 import type { ToolbarActionButton as ToolbarActionButtonModel } from "@t3tools/contracts";
 
+import { TerminalIcon } from "lucide-react";
 import { useClientSettings } from "~/hooks/useSettings";
-import { ToolbarActionButton } from "../toolbar/ToolbarActionButton";
-import { ToolbarFolderButton } from "../toolbar/ToolbarFolderButton";
+import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
+import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
+import { ToolbarMenuItems } from "../toolbar/ToolbarMenuItems";
 import { sortedToolbarChildren } from "../toolbar/toolbarFolderNav";
 
 interface ComposerShortcutBarProps {
@@ -20,13 +22,10 @@ interface ComposerShortcutBarProps {
 }
 
 /**
- * Row of user-configurable shortcut buttons under the message field, twin of
- * `ArkadiaToolbar` reusing the same button components (Task 3) against
- * `promptButtons` instead of `toolbarButtons`. Ported from Arkadia's
- * `PromptBar` (`src/components/PromptBar.tsx`): folder popovers open upward
- * since the row sits at the bottom of the screen, and every button preserves
- * focus on pointerdown so clicking a shortcut never steals the caret away
- * from the composer the user is typing in.
+ * Compact command menu for the user-configurable `promptButtons`. Actions
+ * stay in the composer footer so the prompt field keeps its vertical space;
+ * folders become nested menu levels and every item preserves the editor's
+ * focus while the menu is used.
  */
 export function ComposerShortcutBar({ onRunAction, disabled = false }: ComposerShortcutBarProps) {
   const promptButtons = useClientSettings((settings) => settings.promptButtons);
@@ -35,30 +34,28 @@ export function ComposerShortcutBar({ onRunAction, disabled = false }: ComposerS
   if (sortedButtons.length === 0) return null;
 
   return (
-    <div
-      className="-mx-1 flex min-w-0 items-center gap-1 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      data-composer-shortcut-bar="true"
-    >
-      {sortedButtons.map((button) =>
-        button.kind === "folder" ? (
-          <ToolbarFolderButton
-            key={button.id}
-            button={button}
-            onRunAction={onRunAction}
-            side="top"
-            preserveFocusOnPointerDown
+    <Menu>
+      <MenuTrigger
+        render={
+          <ComposerControl
+            type="button"
+            className="shrink-0 text-muted-foreground/70 hover:text-foreground/80"
             disabled={disabled}
+            aria-label="Commandes"
+            title="Commandes"
+            data-composer-shortcut-menu-trigger="true"
           />
-        ) : (
-          <ToolbarActionButton
-            key={button.id}
-            button={button}
-            onRun={onRunAction}
-            preserveFocusOnPointerDown
-            disabled={disabled}
-          />
-        ),
-      )}
-    </div>
+        }
+      >
+        <ComposerControlIcon icon={TerminalIcon} />
+      </MenuTrigger>
+      <MenuPopup side="top" align="start" className="max-w-90">
+        <ToolbarMenuItems
+          items={sortedButtons}
+          onRunAction={onRunAction}
+          preserveFocusOnPointerDown
+        />
+      </MenuPopup>
+    </Menu>
   );
 }

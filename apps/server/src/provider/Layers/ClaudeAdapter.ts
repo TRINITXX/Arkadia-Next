@@ -199,6 +199,7 @@ interface ClaudeSessionContext {
   readonly inFlightTools: Map<number, ToolInFlight>;
   readonly claudeTasks: Map<string, ClaudeTaskState>;
   turnState: ClaudeTurnState | undefined;
+  interruptRequestedTurnId: TurnId | undefined;
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
   lastKnownTotalProcessedTokens: number | undefined;
@@ -329,6 +330,17 @@ function isInterruptedResult(result: SDKResultMessage): boolean {
     (errors.includes("request was aborted") ||
       errors.includes("interrupted by user") ||
       errors.includes("aborted"))
+  );
+}
+
+function isRequestedInterruptResult(
+  context: ClaudeSessionContext,
+  result: SDKResultMessage,
+): boolean {
+  return (
+    context.turnState !== undefined &&
+    context.interruptRequestedTurnId === context.turnState.turnId &&
+    result.subtype !== "success"
   );
 }
 
@@ -2018,6 +2030,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     const turnState = context.turnState;
     if (!turnState) {
+      context.interruptRequestedTurnId = undefined;
       yield* emitThreadTokenUsage(context, usageSnapshot, {
         rawMethod: "claude/result",
         rawPayload: result ?? { status },
@@ -2122,6 +2135,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     const updatedAt = yield* nowIso;
     context.turnState = undefined;
+    context.interruptRequestedTurnId = undefined;
     context.session = {
       ...context.session,
       status: "ready",
@@ -2617,7 +2631,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
-    const status = turnStatusFromResult(message);
+    const status = isRequestedInterruptResult(context, message)
+      ? "interrupted"
+      : turnStatusFromResult(message);
     const errorMessage = message.subtype === "success" ? undefined : message.errors[0];
 
     if (status === "failed") {
@@ -3699,6 +3715,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         inFlightTools,
         claudeTasks,
         turnState: undefined,
+        interruptRequestedTurnId: undefined,
         lastKnownContextWindow: initialContextWindow,
         lastKnownTokenUsage: undefined,
         lastKnownTotalProcessedTokens: undefined,
@@ -3887,12 +3904,24 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   });
 
   const interruptTurn: ClaudeAdapterShape["interruptTurn"] = Effect.fn("interruptTurn")(
-    function* (threadId, _turnId) {
+    function* (threadId, turnId) {
       const context = yield* requireSession(threadId);
+      const activeTurnId = context.turnState?.turnId;
+      if (activeTurnId !== undefined && (turnId === undefined || turnId === activeTurnId)) {
+        context.interruptRequestedTurnId = activeTurnId;
+      }
       yield* Effect.tryPromise({
         try: () => context.query.interrupt(),
         catch: (cause) => toRequestError(threadId, "turn/interrupt", cause),
-      });
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            if (context.interruptRequestedTurnId === activeTurnId) {
+              context.interruptRequestedTurnId = undefined;
+            }
+          }),
+        ),
+      );
     },
   );
 

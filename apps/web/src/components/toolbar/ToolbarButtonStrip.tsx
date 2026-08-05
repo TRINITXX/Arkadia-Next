@@ -6,19 +6,10 @@ import type {
 } from "@t3tools/contracts";
 
 import { Button } from "~/components/ui/button";
-import {
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "~/components/ui/menu";
+import { Menu, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { ToolbarActionButton } from "./ToolbarActionButton";
 import { ToolbarFolderButton } from "./ToolbarFolderButton";
-import { sortedToolbarChildren } from "./toolbarFolderNav";
-import { getToolbarIcon } from "./toolbarIcons";
+import { ToolbarMenuItems } from "./ToolbarMenuItems";
 import { resolveVisibleToolbarItemCount } from "./toolbarOverflow";
 
 /** Tailwind `gap-1` on the strip, in pixels — the fitting maths needs a number. */
@@ -127,7 +118,7 @@ export function ToolbarButtonStrip({ buttons, onRunAction }: ToolbarButtonStripP
             <MoreHorizontalIcon />
           </MenuTrigger>
           <MenuPopup align="start" className="max-w-90">
-            <ToolbarOverflowItems items={overflow} onRunAction={onRunAction} />
+            <ToolbarMenuItems items={overflow} onRunAction={onRunAction} />
           </MenuPopup>
         </Menu>
       )}
@@ -147,50 +138,4 @@ function ToolbarChip({
   ) : (
     <ToolbarActionButton button={button} onRun={onRunAction} />
   );
-}
-
-/**
- * The overflowed chips as menu rows. Folders become real submenus here rather
- * than the drill-down popover the inline chips use: inside an open menu,
- * nesting is what the surrounding control already does, and Base UI's submenu
- * handles the keyboard and hover timing for free.
- */
-function ToolbarOverflowItems({
-  items,
-  onRunAction,
-}: {
-  items: ReadonlyArray<ToolbarButtonModel>;
-  onRunAction: (button: ToolbarActionButtonModel) => void;
-}) {
-  return items.map((item) => {
-    const Icon = getToolbarIcon(item.icon);
-
-    if (item.kind === "folder") {
-      const label = item.label || "dossier";
-      const children = sortedToolbarChildren(item.children);
-      return (
-        <MenuSub key={item.id}>
-          <MenuSubTrigger>
-            {Icon && <Icon />}
-            <span className="truncate">{label}</span>
-          </MenuSubTrigger>
-          <MenuSubPopup className="max-w-90">
-            {children.length === 0 ? (
-              <div className="px-2 py-1.5 text-muted-foreground text-sm">Dossier vide</div>
-            ) : (
-              <ToolbarOverflowItems items={children} onRunAction={onRunAction} />
-            )}
-          </MenuSubPopup>
-        </MenuSub>
-      );
-    }
-
-    const label = item.label || item.command || "sans nom";
-    return (
-      <MenuItem key={item.id} onClick={() => onRunAction(item)} title={item.command || label}>
-        {Icon && <Icon />}
-        <span className="truncate">{label}</span>
-      </MenuItem>
-    );
-  });
 }

@@ -3320,15 +3320,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 </div>
               ) : null}
             </div>
-
-            {!isComposerCollapsedMobile &&
-              !isComposerApprovalState &&
-              pendingUserInputs.length === 0 && (
-                <ComposerShortcutBar
-                  onRunAction={runComposerShortcutButton}
-                  disabled={isConnecting || projectSelectionRequired}
-                />
-              )}
           </div>
 
           {/* Bottom toolbar */}
@@ -3411,6 +3402,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   </TooltipTrigger>
                   <TooltipPopup side="top">Joindre un fichier</TooltipPopup>
                 </Tooltip>
+                {!isComposerApprovalState && pendingUserInputs.length === 0 ? (
+                  <ComposerShortcutBar
+                    onRunAction={runComposerShortcutButton}
+                    disabled={isConnecting || projectSelectionRequired}
+                  />
+                ) : null}
                 <input
                   ref={attachmentInputRef}
                   type="file"
