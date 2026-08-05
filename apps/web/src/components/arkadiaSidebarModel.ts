@@ -275,6 +275,10 @@ export function canCloseArkadiaDraftTab(
   return tabs.length > 1 && tabs.some((tab) => tab.kind === "draft" && tab.key === draftKey);
 }
 
+export function isArkadiaProjectActive(tabs: ReadonlyArray<ArkadiaWorkspaceTabItem>): boolean {
+  return tabs.length > 1 || tabs.some((tab) => tab.kind !== "draft");
+}
+
 /**
  * The project to fall back on once the last tab of the current project is
  * closed: the first still-active project other than the one being emptied.
@@ -417,7 +421,7 @@ export function buildArkadiaSidebarGroups(input: {
       color: arkadiaProjectColor(project.workspaceRoot),
     } satisfies ArkadiaSidebarProjectGroup;
 
-    if (tabs.length > 0) {
+    if (isArkadiaProjectActive(tabs)) {
       active.push(group);
     } else {
       inactive.push(group);

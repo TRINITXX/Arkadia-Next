@@ -11,6 +11,7 @@ import {
   closeArkadiaDraftTab,
   buildArkadiaSidebarGroups,
   canCloseArkadiaDraftTab,
+  isArkadiaProjectActive,
   resolveArkadiaDraftTabIds,
   resolveArkadiaNextActiveProject,
   resolveArkadiaInactiveProjectOpenTarget,
@@ -46,6 +47,28 @@ describe("Arkadia draft closeability", () => {
     expect(canCloseArkadiaDraftTab([draft, secondDraft], draft.key)).toBe(true);
     expect(canCloseArkadiaDraftTab([draft, terminal], draft.key)).toBe(true);
     expect(canCloseArkadiaDraftTab([conversation, terminal], draft.key)).toBe(false);
+  });
+});
+
+describe("Arkadia project activity", () => {
+  const draft = {
+    kind: "draft",
+    key: "draft:draft-1",
+    draftId: "draft-1",
+    createdAt: "2026-08-05T10:00:00.000Z",
+  } as const;
+  const secondDraft = { ...draft, key: "draft:draft-2", draftId: "draft-2" } as const;
+  const terminal = {
+    kind: "terminal",
+    key: "terminal:terminal-1",
+    terminalId: "terminal-1",
+  } as const;
+
+  it("does not activate a project for its sole draft", () => {
+    expect(isArkadiaProjectActive([])).toBe(false);
+    expect(isArkadiaProjectActive([draft])).toBe(false);
+    expect(isArkadiaProjectActive([draft, secondDraft])).toBe(true);
+    expect(isArkadiaProjectActive([terminal])).toBe(true);
   });
 });
 
@@ -201,6 +224,51 @@ describe("buildArkadiaSidebarGroups", () => {
 
     expect(groups.active).toEqual([]);
     expect(groups.inactive.map((group) => group.project.id)).toEqual(["alpha", "beta"]);
+  });
+
+  it("puts a project with only one new-conversation draft in Inactive", () => {
+    const groups = sidebarGroups({
+      projects: [project("alpha", "Alpha")],
+      threads: [],
+      drafts: {
+        "draft-1": {
+          environmentId: "local",
+          projectId: "alpha",
+          createdAt: "2026-08-05T10:00:00.000Z",
+          promotedTo: null,
+        },
+      },
+    });
+
+    expect(groups.active).toEqual([]);
+    expect(groups.inactive[0]?.tabs.map((tab) => tab.key)).toEqual(["draft:draft-1"]);
+  });
+
+  it("keeps a project with two new-conversation drafts in Active", () => {
+    const groups = sidebarGroups({
+      projects: [project("alpha", "Alpha")],
+      threads: [],
+      drafts: {
+        "draft-1": {
+          environmentId: "local",
+          projectId: "alpha",
+          createdAt: "2026-08-05T10:00:00.000Z",
+          promotedTo: null,
+        },
+        "draft-2": {
+          environmentId: "local",
+          projectId: "alpha",
+          createdAt: "2026-08-05T11:00:00.000Z",
+          promotedTo: null,
+        },
+      },
+    });
+
+    expect(groups.active[0]?.tabs.map((tab) => tab.key)).toEqual([
+      "draft:draft-1",
+      "draft:draft-2",
+    ]);
+    expect(groups.inactive).toEqual([]);
   });
 
   it("keeps closed and archived conversations out of the tab collection", () => {
