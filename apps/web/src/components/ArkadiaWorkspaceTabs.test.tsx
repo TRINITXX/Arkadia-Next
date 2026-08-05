@@ -9,6 +9,18 @@ import appStylesSource from "../index.css?raw";
 import { prependArkadiaWorkspaceTabKey } from "./arkadiaSidebarModel";
 
 describe("Arkadia workspace tab controls", () => {
+  it("guards draft close controls with the canonical mixed tab list", () => {
+    expect(workspaceTabsSource).toContain("canCloseArkadiaDraftTab");
+    expect(workspaceTabsSource).toMatch(/canCloseArkadiaDraftTab\(orderedTabItems, item\.key\)/);
+    expect(workspaceTabsSource).toContain("onMiddleClick={() => {");
+  });
+
+  it("routes an active draft close through any remaining tab kind", () => {
+    expect(workspaceTabsSource).toContain("orderedTabItems.map((item) => item.key)");
+    expect(workspaceTabsSource).toContain("openTerminalTab");
+    expect(workspaceTabsSource).toContain("openWorkspaceTab");
+  });
+
   it("renders the canonical mixed-tab collection shared with the sidebar", () => {
     expect(workspaceTabsSource).toContain("buildArkadiaWorkspaceTabItems");
     expect(workspaceTabsSource).toContain("openWorkspaceThreadTabKeys");

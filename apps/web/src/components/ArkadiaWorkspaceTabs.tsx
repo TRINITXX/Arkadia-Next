@@ -36,6 +36,7 @@ import { useUiStateStore } from "../uiStateStore";
 import {
   arkadiaWorkspaceTabKey,
   buildArkadiaWorkspaceTabItems,
+  canCloseArkadiaDraftTab,
   closeArkadiaDraftTab,
   handleArkadiaWorkspaceTabMouseDown,
   prependArkadiaWorkspaceTabKey,
@@ -274,40 +275,6 @@ export default function ArkadiaWorkspaceTabs({
 
   const clearDraftThread = useComposerDraftStore((store) => store.clearDraftThread);
 
-  // Closing the draft tab discards the draft outright: nothing exists
-  // server-side yet, so there is no session to stop and nothing to settle.
-  // When the draft is on screen, navigate away first — clearing while its
-  // route is mounted would trigger that route's own "draft is gone" redirect
-  // to the home page and race the navigation to the fallback tab.
-  const closeDraft = useCallback(
-    (draft: VisibleDraft) => {
-      if (activeDraftId !== draft.draftId) {
-        clearDraftThread(draft.draftId);
-        return;
-      }
-      const fallbackDraft = visibleDrafts.find((candidate) => candidate.draftId !== draft.draftId);
-      const fallback = tabs[tabs.length - 1];
-      void closeArkadiaDraftTab({
-        navigateAway: () =>
-          fallbackDraft
-            ? router.navigate({
-                to: "/draft/$draftId",
-                params: { draftId: fallbackDraft.draftId },
-              })
-            : fallback
-              ? router.navigate({
-                  to: "/$environmentId/$threadId",
-                  params: buildThreadRouteParams(
-                    scopeThreadRef(fallback.environmentId, fallback.id),
-                  ),
-                })
-              : openEmptyProject(true),
-        clearDraft: () => clearDraftThread(draft.draftId),
-      });
-    },
-    [activeDraftId, clearDraftThread, openEmptyProject, projectRef, router, tabs, visibleDrafts],
-  );
-
   // Closing a tab always closes it, whatever the agent is doing: the tab
   // disappears from this window immediately, the running agent is stopped, and
   // the conversation itself is only settled (never archived or deleted), so it
@@ -371,6 +338,57 @@ export default function ArkadiaWorkspaceTabs({
       });
     },
     [environmentId, projectId, router],
+  );
+
+  const openWorkspaceTab = useCallback(
+    (item: ArkadiaWorkspaceTabItem) => {
+      if (item.kind === "thread") {
+        openThread(item.thread);
+        return;
+      }
+      if (item.kind === "draft") {
+        const draft = visibleDrafts.find((candidate) => String(candidate.draftId) === item.draftId);
+        if (draft) openDraft(draft);
+        return;
+      }
+      openTerminalTab(item.terminalId);
+    },
+    [openDraft, openTerminalTab, openThread, visibleDrafts],
+  );
+
+  // Closing the draft tab discards the draft outright: nothing exists
+  // server-side yet, so there is no session to stop and nothing to settle.
+  // When the draft is on screen, navigate away first — clearing while its
+  // route is mounted would trigger that route's own "draft is gone" redirect
+  // to the home page and race the navigation to the fallback tab.
+  const closeDraft = useCallback(
+    (draft: VisibleDraft) => {
+      const draftKey = `draft:${draft.draftId}`;
+      if (!canCloseArkadiaDraftTab(orderedTabItems, draftKey)) return;
+      if (activeDraftId !== draft.draftId) {
+        clearDraftThread(draft.draftId);
+        return;
+      }
+
+      const fallbackId = resolveArkadiaTabAfterClose(
+        orderedTabItems.map((item) => item.key),
+        draftKey,
+      );
+      const fallback = fallbackId
+        ? (orderedTabItems.find((item) => item.key === fallbackId) ?? null)
+        : null;
+      void closeArkadiaDraftTab({
+        navigateAway: async () => {
+          if (fallback) {
+            openWorkspaceTab(fallback);
+            return;
+          }
+          await openEmptyProject(true);
+        },
+        clearDraft: () => clearDraftThread(draft.draftId),
+      });
+    },
+    [activeDraftId, clearDraftThread, openEmptyProject, openWorkspaceTab, orderedTabItems],
   );
 
   // Unlike a conversation, a closed terminal is gone for good — so leaving the
@@ -504,6 +522,7 @@ export default function ArkadiaWorkspaceTabs({
                 );
                 if (!draft) return null;
                 const active = activeDraftId === draft.draftId;
+                const canClose = canCloseArkadiaDraftTab(orderedTabItems, item.key);
                 return (
                   <SortableWorkspaceTab
                     key={item.key}
@@ -511,23 +530,27 @@ export default function ArkadiaWorkspaceTabs({
                     active={active}
                     title="Nouvelle conversation"
                     onOpen={() => openDraft(draft)}
-                    onMiddleClick={() => closeDraft(draft)}
+                    onMiddleClick={() => {
+                      if (canClose) closeDraft(draft);
+                    }}
                   >
                     <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
                     <span className="min-w-0 flex-1 truncate font-medium">
                       Nouvelle conversation
                     </span>
-                    <button
-                      type="button"
-                      aria-label="Fermer la nouvelle conversation"
-                      className={workspaceTabCloseClassName(active)}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeDraft(draft);
-                      }}
-                    >
-                      <X size={12} strokeWidth={2} />
-                    </button>
+                    {canClose ? (
+                      <button
+                        type="button"
+                        aria-label="Fermer la nouvelle conversation"
+                        className={workspaceTabCloseClassName(active)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          closeDraft(draft);
+                        }}
+                      >
+                        <X size={12} strokeWidth={2} />
+                      </button>
+                    ) : null}
                   </SortableWorkspaceTab>
                 );
               }
