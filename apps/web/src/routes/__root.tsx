@@ -13,7 +13,6 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
-import { CommandPalette } from "../components/CommandPalette";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
@@ -38,10 +37,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme, useTheme } from "../hooks/useTheme";
 import { resolveChromeBackground } from "../lib/backgrounds";
 import { isNativeContentPalette, resolveContentPalette } from "../lib/palettes";
-import {
-  DEFAULT_AGENT_FONT_FAMILY,
-  DEFAULT_AGENT_FONT_SIZE,
-} from "@t3tools/contracts/settings";
+import { DEFAULT_AGENT_FONT_FAMILY, DEFAULT_AGENT_FONT_SIZE } from "@t3tools/contracts/settings";
 import { configureClientTracing } from "../observability/clientTracing";
 import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
@@ -123,11 +119,9 @@ function RootRouteView() {
   }
 
   const appShell = (
-    <CommandPalette>
-      <AppSidebarLayout>
-        <Outlet />
-      </AppSidebarLayout>
-    </CommandPalette>
+    <AppSidebarLayout>
+      <Outlet />
+    </AppSidebarLayout>
   );
 
   return (

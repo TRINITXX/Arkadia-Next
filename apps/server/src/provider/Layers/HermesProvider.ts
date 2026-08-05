@@ -102,12 +102,13 @@ function hermesModelsFromSettings(
   return providerModelsFromSettings(builtInModels, customModels ?? [], EMPTY_CAPABILITIES);
 }
 
-function buildHermesDiscoveredModelsFromSessionModelState(
+export function buildHermesDiscoveredModelsFromSessionModelState(
   modelState: EffectAcpSchema.SessionModelState | null | undefined,
 ): ReadonlyArray<ServerProviderModel> {
   if (!modelState || modelState.availableModels.length === 0) {
     return [];
   }
+  const currentModelSlug = resolveHermesAcpBaseModelId(modelState.currentModelId);
   const seen = new Set<string>();
   return modelState.availableModels
     .map((model): ServerProviderModel | undefined => {
@@ -120,6 +121,7 @@ function buildHermesDiscoveredModelsFromSessionModelState(
         slug,
         name: model.name.trim() || slug,
         isCustom: false,
+        ...(slug === currentModelSlug ? { isDefault: true } : {}),
         capabilities: EMPTY_CAPABILITIES,
       };
     })

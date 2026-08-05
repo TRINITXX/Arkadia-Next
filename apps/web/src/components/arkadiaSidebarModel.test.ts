@@ -9,6 +9,7 @@ import {
   buildArkadiaSidebarGroups,
   resolveArkadiaActiveProjectLayout,
   resolveArkadiaNextActiveProject,
+  resolveArkadiaInactiveProjectOpenTarget,
   resolveArkadiaThreadIndicator,
   shortenArkadiaProjectPath,
 } from "./arkadiaSidebarModel";
@@ -175,6 +176,23 @@ describe("resolveArkadiaNextActiveProject", () => {
     );
 
     expect(resolveArkadiaNextActiveProject(groups, "local:beta")).toBeNull();
+  });
+});
+
+describe("resolveArkadiaInactiveProjectOpenTarget", () => {
+  it("opens the project's existing empty composer instead of a prior conversation", () => {
+    const drafts = {
+      matching: { environmentId: "local", projectId: "alpha", promotedTo: null },
+      other: { environmentId: "local", projectId: "beta", promotedTo: null },
+    };
+
+    expect(resolveArkadiaInactiveProjectOpenTarget(drafts, "local", "alpha")).toEqual({
+      kind: "draft",
+      draftId: "matching",
+    });
+    expect(resolveArkadiaInactiveProjectOpenTarget({}, "local", "alpha")).toEqual({
+      kind: "new-draft",
+    });
   });
 });
 

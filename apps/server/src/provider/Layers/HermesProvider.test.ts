@@ -6,7 +6,11 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { HermesSettings } from "@t3tools/contracts";
 
-import { buildInitialHermesProviderSnapshot, checkHermesProviderStatus } from "./HermesProvider.ts";
+import {
+  buildHermesDiscoveredModelsFromSessionModelState,
+  buildInitialHermesProviderSnapshot,
+  checkHermesProviderStatus,
+} from "./HermesProvider.ts";
 
 const decodeHermesSettings = Schema.decodeSync(HermesSettings);
 
@@ -34,6 +38,35 @@ describe("buildInitialHermesProviderSnapshot", () => {
       expect(snapshot.requiresNewThreadForModelChange).toBe(true);
     }),
   );
+});
+
+describe("buildHermesDiscoveredModelsFromSessionModelState", () => {
+  it("marks the ACP current model as default while preserving every discovered model", () => {
+    const models = buildHermesDiscoveredModelsFromSessionModelState({
+      currentModelId: "nous:deepseek/deepseek-v4-pro",
+      availableModels: [
+        {
+          modelId: "nous:deepseek/deepseek-v4-flash-0731",
+          name: "DeepSeek V4 Flash",
+        },
+        {
+          modelId: "nous:deepseek/deepseek-v4-pro",
+          name: "DeepSeek V4 Pro",
+        },
+      ],
+    });
+
+    expect(models.map(({ slug, isDefault }) => ({ slug, isDefault }))).toEqual([
+      {
+        slug: "nous:deepseek/deepseek-v4-flash-0731",
+        isDefault: undefined,
+      },
+      {
+        slug: "nous:deepseek/deepseek-v4-pro",
+        isDefault: true,
+      },
+    ]);
+  });
 });
 
 it.layer(NodeServices.layer)("checkHermesProviderStatus", (it) => {
