@@ -2002,11 +2002,12 @@ export function ProviderSettingsPanel() {
   );
   const visibleProviderSettings = PROVIDER_SETTINGS.filter(
     (providerSettings) =>
-      providerSettings.provider !== "cursor" ||
-      serverProviders.some(
-        (provider) =>
-          provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
-      ),
+      Object.hasOwn(settings.providers, providerSettings.provider) &&
+      (providerSettings.provider !== "cursor" ||
+        serverProviders.some(
+          (provider) =>
+            provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
+        )),
   );
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenInstanceId = textGenerationModelSelection.instanceId;
