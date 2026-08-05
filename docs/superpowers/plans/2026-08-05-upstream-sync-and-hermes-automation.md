@@ -38,31 +38,31 @@
 - Consumes: `origin/main`, `upstream/main`, clean local `main`.
 - Produces: one reviewable merge commit on local `main` plus a `backup/upstream-2026-08-05-*` ref.
 
-- [ ] **Step 1: Verify the repository is clean and current**
+- [x] **Step 1: Verify the repository is clean and current**
 
   Run `git status --short --branch`, `git fetch upstream --prune --tags`, and verify `origin/main...main` is `0 0`.
 
-- [ ] **Step 2: Enable reusable conflict resolutions and create the backup**
+- [x] **Step 2: Enable reusable conflict resolutions and create the backup**
 
   Run `git config rerere.enabled true`, `git config rerere.autoupdate true`, and create a uniquely named backup branch at the pre-merge `HEAD`.
 
-- [ ] **Step 3: Merge without committing**
+- [x] **Step 3: Merge without committing**
 
   Run `git merge --no-ff --no-commit upstream/main`. Record every conflict before resolving it.
 
-- [ ] **Step 4: Preserve permanent Arkadia exclusions**
+- [x] **Step 4: Preserve permanent Arkadia exclusions**
 
   Restore `apps/mobile/**` from the pre-merge backup. Keep locally deleted command palette, legacy sidebar, legacy chat header, Git actions control, and project scripts deleted. Preserve Arkadia's left-sidebar and workspace-navigation behavior rather than accepting upstream sidebar behavior.
 
-- [ ] **Step 5: Resolve shared contracts and settings semantically**
+- [x] **Step 5: Resolve shared contracts and settings semantically**
 
   Combine upstream compatibility, stability, browser, terminal, title, diff, and dependency improvements with Arkadia's Hermes/Kimi providers, appearance system, project memory, merge cleanup, toolbar, and branding.
 
-- [ ] **Step 6: Regenerate dependency metadata if necessary**
+- [x] **Step 6: Regenerate dependency metadata if necessary**
 
   Use the repository package manager to produce a coherent lockfile after resolving manifest conflicts; do not hand-edit generated lockfile conflict markers.
 
-- [ ] **Step 7: Commit the merge only after verification**
+- [x] **Step 7: Commit the merge only after verification**
 
   Use a conventional commit message describing the upstream synchronization and preserved Arkadia exclusions.
 
@@ -78,19 +78,19 @@
 - Consumes: resolved merge tree from Task 1.
 - Produces: recorded typecheck and focused-test evidence.
 
-- [ ] **Step 1: Run `npx tsc --noEmit`**
+- [x] **Step 1: Run `npx tsc --noEmit`**
 
   This is required by the repository instructions before committing.
 
-- [ ] **Step 2: Run affected package typechecks**
+- [x] **Step 2: Run affected package typechecks**
 
   Run focused desktop, server, contracts, and web typechecks using the repository-local `vp` command.
 
-- [ ] **Step 3: Run focused tests**
+- [x] **Step 3: Run focused tests**
 
   Select tests from the actual conflict and retained-feature list. Do not run the repository-wide suite.
 
-- [ ] **Step 4: Confirm exclusions**
+- [x] **Step 4: Confirm exclusions**
 
   Verify `apps/mobile` has no diff from the backup and locally deleted features remain deleted.
 
@@ -107,23 +107,23 @@
 - Consumes: GitHub upstream releases, Tailscale SSH target `TRINITX@pc1.tailc880c9.ts.net`, Windows repository path `C:\Users\TRINITX\Desktop\Claude Desktop\Arkadia-Next`.
 - Produces: filtered proposals, durable decisions, safe commits, verified updates, backups, rollback logs.
 
-- [ ] **Step 1: Encode the permanent policy**
+- [x] **Step 1: Encode the permanent policy**
 
   Define included surfaces (`apps/desktop`, `apps/web`, `apps/server`, shared contracts/runtime) and excluded surfaces (`apps/mobile`, marketing/relay unless a required shared dependency, official sidebar, locally deleted features).
 
-- [ ] **Step 2: Implement reachability and cleanliness preflight**
+- [x] **Step 2: Implement reachability and cleanliness preflight**
 
   Use non-interactive SSH over Tailscale. A failed connection emits no Telegram message during retries. A dirty checkout generates a simple summary and exposes only `Reporter` and `Commit` choices.
 
-- [ ] **Step 3: Implement release analysis and durable decisions**
+- [x] **Step 3: Implement release analysis and durable decisions**
 
   Compare the last reviewed upstream tag/commit with current releases, group inseparable dependencies, hide exclusions, and persist accepted, rejected, pending, applied, and superseded decisions.
 
-- [ ] **Step 4: Implement safe application**
+- [x] **Step 4: Implement safe application**
 
   Create a backup branch, apply only accepted groups, invoke Sol explicitly for risky work, verify, commit, and push `origin/main` only on success.
 
-- [ ] **Step 5: Implement failure recovery and logs**
+- [x] **Step 5: Implement failure recovery and logs**
 
   After two failed Sol attempts, restore the backup, attach the full log to Telegram, and keep Luna as the profile default.
 
@@ -138,15 +138,15 @@
 - Consumes: Task 3 skill and scripts.
 - Produces: one enabled daily workflow and a harmless dry-run result.
 
-- [ ] **Step 1: Create the 10:00 Europe/Paris schedule**
+- [x] **Step 1: Create the 10:00 Europe/Paris schedule**
 
   Pin the job to GPT-5.6 Luna/OpenAI Codex and deliver only actionable messages to the configured Telegram home chat.
 
-- [ ] **Step 2: Encode retry-window behavior**
+- [x] **Step 2: Encode retry-window behavior**
 
   Retry unreachable-PC preflight at 10:30, 11:00, 11:30, and 12:00 without noise; do not retry after noon.
 
-- [ ] **Step 3: Run a dry test**
+- [x] **Step 3: Run a dry test**
 
   Confirm the job can reach the Windows checkout, read Git state, find the configured remotes, and produce no mutation in dry-run mode.
 
@@ -165,14 +165,14 @@
 - Consumes: exact installed paths, cron job ID, model routes, backup convention, and log location.
 - Produces: one copyable French bootstrap prompt and recovery instructions.
 
-- [ ] **Step 1: Document normal operation**
+- [x] **Step 1: Document normal operation**
 
   Describe the daily report, approvals, dirty-checkout flow, automatic push, refusal memory, urgent notifications, and retry window in user language.
 
-- [ ] **Step 2: Document recovery**
+- [x] **Step 2: Document recovery**
 
   Include commands to pause/resume the cron, inspect runs, locate logs, identify the backup branch, and hand the failure log to Claude Fable.
 
-- [ ] **Step 3: Provide the bootstrap prompt**
+- [x] **Step 3: Provide the bootstrap prompt**
 
   The prompt must restate the permanent exclusions and require Hermes to inspect current machine state rather than assuming paths, credentials, or model availability.
