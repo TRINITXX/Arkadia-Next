@@ -4,6 +4,12 @@ import rootRouteSource from "../routes/__root.tsx?raw";
 import arkadiaSidebarSource from "./ArkadiaSidebar.tsx?raw";
 
 describe("Arkadia recent sessions entry point", () => {
+  it("guards sidebar draft close controls with the mixed project tab list", () => {
+    expect(arkadiaSidebarSource).toContain("canCloseArkadiaDraftTab");
+    expect(arkadiaSidebarSource).toContain("canCloseArkadiaDraftTab(group.tabs, tab.key)");
+    expect(arkadiaSidebarSource).toContain("group.tabs.map");
+  });
+
   it("renders every canonical workspace tab beneath its project, including a single tab", () => {
     expect(arkadiaSidebarSource).toContain("group.tabs.map");
     expect(arkadiaSidebarSource).not.toContain("group.threads.map");

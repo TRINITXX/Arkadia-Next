@@ -45,6 +45,7 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import {
   arkadiaWorkspaceTabKey,
   buildArkadiaSidebarGroups,
+  canCloseArkadiaDraftTab,
   closeArkadiaDraftTab,
   resolveArkadiaInactiveProjectOpenTarget,
   resolveArkadiaProjectOpenTab,
@@ -174,6 +175,7 @@ function ActiveProjectGroup(props: {
               : tab.kind === "draft"
                 ? "Nouvelle conversation"
                 : getTerminalLabel(tab.terminalId);
+          const canClose = tab.kind !== "draft" || canCloseArkadiaDraftTab(group.tabs, tab.key);
           return (
             <div key={tab.key} className="group/close relative">
               <button
@@ -188,6 +190,7 @@ function ActiveProjectGroup(props: {
                 }}
                 onMouseDown={(event) => {
                   if (event.button !== 1) return;
+                  if (!canClose) return;
                   event.preventDefault();
                   event.stopPropagation();
                   onCloseTab(tab, group);
@@ -204,10 +207,12 @@ function ActiveProjectGroup(props: {
                 )}
                 <span className="min-w-0 flex-1 truncate">{label}</span>
               </button>
-              <SidebarCloseButton
-                label={`Fermer ${label}`}
-                onClose={() => onCloseTab(tab, group)}
-              />
+              {canClose ? (
+                <SidebarCloseButton
+                  label={`Fermer ${label}`}
+                  onClose={() => onCloseTab(tab, group)}
+                />
+              ) : null}
             </div>
           );
         })}
@@ -625,6 +630,7 @@ export default function ArkadiaSidebar() {
 
   const closeOneTab = useCallback(
     (tab: ArkadiaWorkspaceTabItem, group: ArkadiaSidebarProjectGroup) => {
+      if (tab.kind === "draft" && !canCloseArkadiaDraftTab(group.tabs, tab.key)) return;
       const isActive = tab.key === activeTabKey;
       const remaining = group.tabs.filter((candidate) => candidate.key !== tab.key);
       const nextKey = resolveArkadiaTabAfterClose(
