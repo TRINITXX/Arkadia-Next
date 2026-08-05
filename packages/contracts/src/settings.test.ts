@@ -6,6 +6,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   DEFAULT_SERVER_SETTINGS,
+  KimiSettings,
   ServerSettings,
   ServerSettingsPatch,
 } from "./settings.ts";
@@ -15,6 +16,7 @@ const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
+const decodeKimiSettings = Schema.decodeUnknownSync(KimiSettings);
 
 describe("Arkadia Claude defaults", () => {
   it("matches the ccd launch behavior for a fresh settings file", () => {
@@ -34,6 +36,31 @@ describe("Arkadia Claude defaults", () => {
     });
 
     expect(settings.providers.claudeAgent.launchArgs).toBe("");
+  });
+});
+
+describe("Kimi provider defaults", () => {
+  it("uses Claude Code with an isolated config directory", () => {
+    expect(decodeKimiSettings({})).toEqual({
+      enabled: true,
+      binaryPath: "claude",
+      homePath: "~/.t3/kimi-claude",
+      launchArgs: "--permission-mode auto --allow-dangerously-skip-permissions",
+    });
+  });
+
+  it("preserves explicit harness overrides", () => {
+    expect(
+      decodeKimiSettings({
+        binaryPath: "C:/tools/claude.exe",
+        homePath: "D:/kimi-config",
+        launchArgs: "--permission-mode plan",
+      }),
+    ).toMatchObject({
+      binaryPath: "C:/tools/claude.exe",
+      homePath: "D:/kimi-config",
+      launchArgs: "--permission-mode plan",
+    });
   });
 });
 

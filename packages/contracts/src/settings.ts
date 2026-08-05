@@ -398,6 +398,45 @@ export const ClaudeSettings = makeProviderSettingsSchema(
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
+export const KimiSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("claude").pipe(
+      Schema.annotateKey({
+        title: "Claude Code binary path",
+        description: "Path to the Claude Code binary used as the Kimi harness.",
+        providerSettingsForm: { placeholder: "claude", clearWhenEmpty: "omit" },
+      }),
+    ),
+    homePath: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("~/.t3/kimi-claude")),
+      Schema.annotateKey({
+        title: "Isolated harness directory",
+        description: "Kimi-specific Claude Code state. Personal Claude settings are not imported.",
+        providerSettingsForm: {
+          placeholder: "~/.t3/kimi-claude",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    launchArgs: Schema.String.pipe(
+      Schema.withDecodingDefault(
+        Effect.succeed("--permission-mode auto --allow-dangerously-skip-permissions"),
+      ),
+      Schema.annotateKey({
+        title: "Launch arguments",
+        description: "Additional Claude Code arguments passed on Kimi session start.",
+        providerSettingsForm: { clearWhenEmpty: "omit" },
+      }),
+    ),
+  },
+  { order: ["binaryPath", "homePath", "launchArgs"] },
+);
+export type KimiSettings = typeof KimiSettings.Type;
+
 export const CursorSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(

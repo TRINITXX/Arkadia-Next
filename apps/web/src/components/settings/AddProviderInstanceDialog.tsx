@@ -35,6 +35,7 @@ import {
   type WizardNavigation,
 } from "./AddProviderInstanceDialog.logic";
 import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps";
+import { buildCredentialEnvironment } from "./providerCredentials";
 
 const PROVIDER_ACCENT_SWATCHES = [
   "#2563eb",
@@ -131,6 +132,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
   // Driver-specific config drafts keyed by driver so toggling between drivers
   // during the same dialog session does not lose in-progress input.
   const [configByDriver, setConfigByDriver] = useState<Record<string, Record<string, unknown>>>({});
+  const [credentialByDriver, setCredentialByDriver] = useState<Record<string, string>>({});
   // Errors are suppressed until the user has tried to submit once. After that
   // they update live so fixing the problem clears the message in place.
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
@@ -152,6 +154,11 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
   const wizardStepSummaries = [driverOption.label, previewLabel, null] as const;
 
   const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
+  const credentialValue = credentialByDriver[driver] ?? "";
+  const credentialError =
+    driverOption.credential && credentialValue.trim().length === 0
+      ? `${driverOption.credential.label} is required.`
+      : null;
   const setConfigDraft = (config: Record<string, unknown> | undefined) => {
     setConfigByDriver((existing) => {
       const next = { ...existing };
@@ -181,7 +188,7 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
 
   const handleSave = () => {
     setHasAttemptedSubmit(true);
-    if (instanceIdError !== null) return;
+    if (instanceIdError !== null || credentialError !== null) return;
 
     const config = configByDriver[driver] ?? {};
     const hasConfig = Object.keys(config).length > 0;
@@ -193,6 +200,11 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
       ...(label.trim().length > 0 ? { displayName: label.trim() } : {}),
       ...(normalizedAccentColor ? { accentColor: normalizedAccentColor } : {}),
       ...(hasConfig ? { config } : {}),
+      ...(driverOption.credential
+        ? {
+            environment: buildCredentialEnvironment(driverOption.credential, credentialValue),
+          }
+        : {}),
     };
     // `ProviderInstanceId.make` revalidates the slug; we've already checked
     // it via `validateInstanceId`, but going through the brand constructor
@@ -388,6 +400,33 @@ export function AddProviderInstanceDialog({ open, onOpenChange }: AddProviderIns
 
               {driverSettingsFields.length > 0 ? (
                 <div className={cn("grid gap-4", wizardStep !== 2 && "hidden")}>
+                  {driverOption.credential ? (
+                    <label className="grid gap-1.5">
+                      <span className="text-xs font-medium text-foreground">
+                        {driverOption.credential.label}
+                      </span>
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        value={credentialValue}
+                        placeholder={driverOption.credential.placeholder}
+                        onChange={(event) =>
+                          setCredentialByDriver((current) => ({
+                            ...current,
+                            [driver]: event.target.value,
+                          }))
+                        }
+                      />
+                      {hasAttemptedSubmit && credentialError ? (
+                        <span className="text-[11px] text-destructive">{credentialError}</span>
+                      ) : null}
+                      {driverOption.credential.description ? (
+                        <span className="text-[11px] text-muted-foreground">
+                          {driverOption.credential.description}
+                        </span>
+                      ) : null}
+                    </label>
+                  ) : null}
                   <ProviderSettingsForm
                     definition={driverOption}
                     value={configDraft}
