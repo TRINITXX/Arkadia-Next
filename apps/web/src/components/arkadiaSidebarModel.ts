@@ -268,6 +268,13 @@ export function resolveArkadiaTabAfterClose(
   return tabIds[closingIndex + 1] ?? tabIds[closingIndex - 1] ?? null;
 }
 
+export function canCloseArkadiaDraftTab(
+  tabs: ReadonlyArray<ArkadiaWorkspaceTabItem>,
+  draftKey: string,
+): boolean {
+  return tabs.length > 1 && tabs.some((tab) => tab.kind === "draft" && tab.key === draftKey);
+}
+
 /**
  * The project to fall back on once the last tab of the current project is
  * closed: the first still-active project other than the one being emptied.

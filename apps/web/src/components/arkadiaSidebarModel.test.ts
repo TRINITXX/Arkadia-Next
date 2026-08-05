@@ -10,6 +10,7 @@ import {
   handleArkadiaWorkspaceTabMouseDown,
   closeArkadiaDraftTab,
   buildArkadiaSidebarGroups,
+  canCloseArkadiaDraftTab,
   resolveArkadiaDraftTabIds,
   resolveArkadiaNextActiveProject,
   resolveArkadiaInactiveProjectOpenTarget,
@@ -19,6 +20,34 @@ import {
   shortenArkadiaProjectPath,
 } from "./arkadiaSidebarModel";
 import * as arkadiaSidebarModel from "./arkadiaSidebarModel";
+
+describe("Arkadia draft closeability", () => {
+  const draft = {
+    kind: "draft",
+    key: "draft:draft-1",
+    draftId: "draft-1",
+    createdAt: "2026-08-05T10:00:00.000Z",
+  } as const;
+  const secondDraft = { ...draft, key: "draft:draft-2", draftId: "draft-2" } as const;
+  const terminal = {
+    kind: "terminal",
+    key: "terminal:terminal-1",
+    terminalId: "terminal-1",
+  } as const;
+  const conversation = {
+    kind: "thread",
+    key: "local:thread-1",
+    thread: thread("thread-1", "alpha"),
+  } as const;
+
+  it("requires another mixed workspace tab", () => {
+    expect(canCloseArkadiaDraftTab([draft], draft.key)).toBe(false);
+    expect(canCloseArkadiaDraftTab([draft, conversation], draft.key)).toBe(true);
+    expect(canCloseArkadiaDraftTab([draft, secondDraft], draft.key)).toBe(true);
+    expect(canCloseArkadiaDraftTab([draft, terminal], draft.key)).toBe(true);
+    expect(canCloseArkadiaDraftTab([conversation, terminal], draft.key)).toBe(false);
+  });
+});
 
 function project(id: string, title = id): EnvironmentProject {
   return {
