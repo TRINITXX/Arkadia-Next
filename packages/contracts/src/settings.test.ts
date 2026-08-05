@@ -13,6 +13,7 @@ import {
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
+const encodeClientSettings = Schema.encodeSync(ClientSettingsSchema);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
@@ -169,6 +170,49 @@ describe("ClientSettings appearance theme and fonts", () => {
     expect(() => decodeClientSettings({ terminalFontSize: value })).toThrow();
     expect(() => decodeClientSettingsPatch({ terminalFontSize: value })).toThrow();
   });
+
+  it("migrates upstream terminal fields into Arkadia's canonical fields", () => {
+    const decoded = decodeClientSettings({
+      fontFamilyTerminal: "Berkeley Mono",
+      fontSizeTerminal: 18,
+    });
+
+    expect(decoded.terminalFontFamily).toBe("Berkeley Mono");
+    expect(decoded.terminalFontSize).toBe(18);
+    expect(decoded).not.toHaveProperty("fontFamilyTerminal");
+    expect(decoded).not.toHaveProperty("fontSizeTerminal");
+  });
+
+  it("keeps Arkadia terminal fields authoritative when both shapes are present", () => {
+    const decoded = decodeClientSettings({
+      terminalFontFamily: "Maple Mono",
+      terminalFontSize: 16,
+      fontFamilyTerminal: "Berkeley Mono",
+      fontSizeTerminal: 18,
+    });
+
+    expect(decoded.terminalFontFamily).toBe("Maple Mono");
+    expect(decoded.terminalFontSize).toBe(16);
+  });
+
+  it("normalizes upstream terminal patches and writes only the canonical shape", () => {
+    expect(
+      decodeClientSettingsPatch({
+        fontFamilyTerminal: "Berkeley Mono",
+        fontSizeTerminal: 18,
+      }),
+    ).toEqual({ terminalFontFamily: "Berkeley Mono", terminalFontSize: 18 });
+
+    const encoded = encodeClientSettings(
+      decodeClientSettings({ fontFamilyTerminal: "Berkeley Mono", fontSizeTerminal: 18 }),
+    );
+    expect(encoded).toMatchObject({
+      terminalFontFamily: "Berkeley Mono",
+      terminalFontSize: 18,
+    });
+    expect(encoded).not.toHaveProperty("fontFamilyTerminal");
+    expect(encoded).not.toHaveProperty("fontSizeTerminal");
+  });
 });
 
 describe("ClientSettings environment identification", () => {
@@ -234,6 +278,14 @@ describe("ClientSettings sidebar v2", () => {
 });
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
+  it("defaults text generation to Luna at low reasoning effort", () => {
+    expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.6-luna",
+      options: [{ id: "reasoningEffort", value: "low" }],
+    });
+  });
+
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
   });

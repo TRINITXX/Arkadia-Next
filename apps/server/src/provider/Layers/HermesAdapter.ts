@@ -62,12 +62,12 @@ import {
 import { type HermesAdapterShape } from "../Services/HermesAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
-const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.UnknownFromJsonString);
+const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
 const PROVIDER = ProviderDriverKind.make("hermes");
 const HERMES_RESUME_VERSION = 1 as const;
 
-function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
+export function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
   const result = encodeUnknownJsonStringExit(input);
   return Exit.isSuccess(result) ? result.value : undefined;
 }

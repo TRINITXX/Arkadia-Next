@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - assertions normalize cross-platform paths returned by the test Path service.
+import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -64,6 +66,7 @@ const makeElectronAppLayer = (calls: ElectronAppCalls) =>
       }),
     appendCommandLineSwitch: () => Effect.void,
     onBeforeQuitForUpdate: () => Effect.void,
+    removeCommandLineSwitch: () => Effect.void,
     on: () => Effect.void,
   } satisfies ElectronApp.ElectronApp["Service"]);
 
@@ -126,9 +129,7 @@ const withIdentity = <A, E, R>(
             exists: (path) =>
               input.legacyPathProbeError
                 ? Effect.fail(input.legacyPathProbeError)
-                : Effect.succeed(
-                    input.legacyPathExists === true && path.includes("T3 Code (Alpha)"),
-                  ),
+                : Effect.succeed(input.legacyPathExists === true && path.includes("arkadia")),
             readFileString: () =>
               Effect.succeed(input.packageJson ?? '{"t3codeCommitHash":"abcdef1234567890"}'),
           }),
@@ -148,14 +149,17 @@ describe("DesktopAppIdentity", () => {
         const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
         const userDataPath = yield* identity.resolveUserDataPath;
 
-        assert.equal(userDataPath, "/Users/alice/Library/Application Support/T3 Code (Alpha)");
+        assert.equal(
+          userDataPath,
+          NodePath.join("/Users/alice/Library/Application Support", "arkadia"),
+        );
       }),
       { legacyPathExists: true },
     ),
   );
 
   it.effect("preserves failures while inspecting the legacy userData path", () => {
-    const legacyPath = "/Users/alice/Library/Application Support/T3 Code (Alpha)";
+    const legacyPath = NodePath.join("/Users/alice/Library/Application Support", "arkadia");
     const cause = PlatformError.systemError({
       _tag: "PermissionDenied",
       module: "FileSystem",
@@ -193,8 +197,8 @@ describe("DesktopAppIdentity", () => {
         const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
         yield* identity.configure;
 
-        assert.deepEqual(calls.setName, ["T3 Code (Alpha)"]);
-        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "T3 Code (Alpha)");
+        assert.deepEqual(calls.setName, ["Arkadia (Alpha)"]);
+        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "Arkadia (Alpha)");
         assert.equal(calls.setAboutPanelOptions[0]?.applicationVersion, "1.2.3");
         assert.equal(calls.setAboutPanelOptions[0]?.version, "0123456789ab");
         assert.deepEqual(calls.setDockIcon, ["/icon.png"]);

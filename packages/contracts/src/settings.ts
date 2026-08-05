@@ -3,7 +3,11 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
-import { DEFAULT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
+import {
+  DEFAULT_TEXT_GENERATION_MODEL,
+  DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
+  ProviderOptionSelections,
+} from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
 import { DEFAULT_PROMPT_BUTTONS, DEFAULT_TOOLBAR_BUTTONS, ToolbarButton } from "./toolbar.ts";
@@ -59,6 +63,43 @@ export const GlassOpacity = Schema.Int.check(
 );
 export type GlassOpacity = typeof GlassOpacity.Type;
 export const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
+/**
+ * Font size preferences, in CSS pixels. The ranges are deliberately narrow:
+ * the interface size scales every rem-based dimension in the app, so the
+ * bounds keep layouts intact rather than offering unusable extremes.
+ */
+export const MIN_INTERFACE_FONT_SIZE = 12;
+export const MAX_INTERFACE_FONT_SIZE = 20;
+export const InterfaceFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_INTERFACE_FONT_SIZE, maximum: MAX_INTERFACE_FONT_SIZE }),
+);
+export type InterfaceFontSize = typeof InterfaceFontSize.Type;
+export const DEFAULT_INTERFACE_FONT_SIZE: InterfaceFontSize = 16;
+
+export const MIN_PROMPT_FONT_SIZE = 12;
+export const MAX_PROMPT_FONT_SIZE = 20;
+export const PromptFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_PROMPT_FONT_SIZE, maximum: MAX_PROMPT_FONT_SIZE }),
+);
+export type PromptFontSize = typeof PromptFontSize.Type;
+export const DEFAULT_PROMPT_FONT_SIZE: PromptFontSize = 14;
+
+export const MIN_CODE_FONT_SIZE = 10;
+export const MAX_CODE_FONT_SIZE = 18;
+export const CodeFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_CODE_FONT_SIZE, maximum: MAX_CODE_FONT_SIZE }),
+);
+export type CodeFontSize = typeof CodeFontSize.Type;
+export const DEFAULT_CODE_FONT_SIZE: CodeFontSize = 13;
+
+export const MIN_TERMINAL_FONT_SIZE = 6;
+export const MAX_TERMINAL_FONT_SIZE = 32;
+export const TerminalFontSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_TERMINAL_FONT_SIZE, maximum: MAX_TERMINAL_FONT_SIZE }),
+);
+export type TerminalFontSize = typeof TerminalFontSize.Type;
+export const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 14;
+
 export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill", "none"]);
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
@@ -125,15 +166,15 @@ export const DEFAULT_AGENT_FONT_SIZE: AgentFontSize = 15;
 // the bundled Cascadia Code metrics font then system monospaces.
 export const DEFAULT_TERMINAL_FONT_FAMILY =
   '"Maple Mono NF", "Maple Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace';
-export const MIN_TERMINAL_FONT_SIZE = 6;
-export const MAX_TERMINAL_FONT_SIZE = 32;
-export const TerminalFontSize = Schema.Int.check(
-  Schema.isBetween({ minimum: MIN_TERMINAL_FONT_SIZE, maximum: MAX_TERMINAL_FONT_SIZE }),
-);
-export type TerminalFontSize = typeof TerminalFontSize.Type;
-export const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 14;
 
-export const ClientSettingsSchema = Schema.Struct({
+/**
+ * A user-chosen font family (a single name or a comma-separated list). Empty
+ * means "use the app default"; clients compose their own fallback stacks.
+ */
+export const FontFamilyPreference = Schema.String.check(Schema.isMaxLength(200));
+export type FontFamilyPreference = typeof FontFamilyPreference.Type;
+
+const ClientSettingsCommonFields = {
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -168,12 +209,21 @@ export const ClientSettingsSchema = Schema.Struct({
   agentFontSize: AgentFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_FONT_SIZE)),
   ),
-  terminalFontFamily: Schema.String.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_FONT_FAMILY)),
+  fontSizeInterface: InterfaceFontSize.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_SIZE)),
   ),
-  terminalFontSize: TerminalFontSize.pipe(
-    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_FONT_SIZE)),
+  fontSizePrompt: PromptFontSize.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROMPT_FONT_SIZE)),
   ),
+  fontSizeCode: CodeFontSize.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_CODE_FONT_SIZE)),
+  ),
+  fontFamilyCode: FontFamilyPreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  fontFamilyComposer: FontFamilyPreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  fontFamilySans: FontFamilyPreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  // Grayscale `-webkit-font-smoothing: antialiased` (thinner strokes);
+  // disabling restores the platform's heavier default. No effect off macOS.
+  fontSmoothing: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
   // on a custom provider instance (e.g. "Codex Personal · gpt-5") without
@@ -235,7 +285,46 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROMPT_BUTTONS)),
   ),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+} as const;
+
+const ClientSettingsEncoded = Schema.Struct({
+  ...ClientSettingsCommonFields,
+  terminalFontFamily: Schema.optionalKey(Schema.String),
+  terminalFontSize: Schema.optionalKey(TerminalFontSize),
+  // Read-only aliases written by upstream builds. Decoding migrates them into
+  // Arkadia's canonical pair and encoding never writes them back.
+  fontFamilyTerminal: Schema.optionalKey(FontFamilyPreference),
+  fontSizeTerminal: Schema.optionalKey(TerminalFontSize),
 });
+
+const ClientSettingsCanonical = Schema.toType(
+  Schema.Struct({
+    ...ClientSettingsCommonFields,
+    terminalFontFamily: Schema.String,
+    terminalFontSize: TerminalFontSize,
+  }),
+);
+
+export const ClientSettingsSchema = ClientSettingsEncoded.pipe(
+  Schema.decodeTo(
+    ClientSettingsCanonical,
+    SchemaTransformation.transform({
+      decode: ({
+        fontFamilyTerminal,
+        fontSizeTerminal,
+        terminalFontFamily,
+        terminalFontSize,
+        ...settings
+      }) => ({
+        ...settings,
+        terminalFontFamily:
+          terminalFontFamily ?? fontFamilyTerminal ?? DEFAULT_TERMINAL_FONT_FAMILY,
+        terminalFontSize: terminalFontSize ?? fontSizeTerminal ?? DEFAULT_TERMINAL_FONT_SIZE,
+      }),
+      encode: (settings) => settings,
+    }),
+  ),
+);
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
@@ -686,6 +775,12 @@ export const ServerSettings = Schema.Struct({
       Effect.succeed({
         instanceId: ProviderInstanceId.make("codex"),
         model: DEFAULT_TEXT_GENERATION_MODEL,
+        options: [
+          {
+            id: "reasoningEffort",
+            value: DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
+          },
+        ],
       }),
     ),
   ),
@@ -871,7 +966,7 @@ export const ServerSettingsPatch = Schema.Struct({
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
-export const ClientSettingsPatch = Schema.Struct({
+const ClientSettingsPatchCommonFields = {
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
@@ -884,8 +979,13 @@ export const ClientSettingsPatch = Schema.Struct({
   chromeBackgroundId: Schema.optionalKey(ChromeBackgroundId),
   agentFontFamily: Schema.optionalKey(Schema.String),
   agentFontSize: Schema.optionalKey(AgentFontSize),
-  terminalFontFamily: Schema.optionalKey(Schema.String),
-  terminalFontSize: Schema.optionalKey(TerminalFontSize),
+  fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
+  fontSizePrompt: Schema.optionalKey(PromptFontSize),
+  fontSizeCode: Schema.optionalKey(CodeFontSize),
+  fontFamilyCode: Schema.optionalKey(FontFamilyPreference),
+  fontFamilyComposer: Schema.optionalKey(FontFamilyPreference),
+  fontFamilySans: Schema.optionalKey(FontFamilyPreference),
+  fontSmoothing: Schema.optionalKey(Schema.Boolean),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
@@ -921,5 +1021,45 @@ export const ClientSettingsPatch = Schema.Struct({
   toolbarButtons: Schema.optionalKey(Schema.Array(ToolbarButton)),
   promptButtons: Schema.optionalKey(Schema.Array(ToolbarButton)),
   wordWrap: Schema.optionalKey(Schema.Boolean),
+} as const;
+
+const ClientSettingsPatchEncoded = Schema.Struct({
+  ...ClientSettingsPatchCommonFields,
+  terminalFontFamily: Schema.optionalKey(Schema.String),
+  terminalFontSize: Schema.optionalKey(TerminalFontSize),
+  fontFamilyTerminal: Schema.optionalKey(FontFamilyPreference),
+  fontSizeTerminal: Schema.optionalKey(TerminalFontSize),
 });
+
+const ClientSettingsPatchCanonical = Schema.toType(
+  Schema.Struct({
+    ...ClientSettingsPatchCommonFields,
+    terminalFontFamily: Schema.optionalKey(Schema.String),
+    terminalFontSize: Schema.optionalKey(TerminalFontSize),
+  }),
+);
+
+export const ClientSettingsPatch = ClientSettingsPatchEncoded.pipe(
+  Schema.decodeTo(
+    ClientSettingsPatchCanonical,
+    SchemaTransformation.transform({
+      decode: ({
+        fontFamilyTerminal,
+        fontSizeTerminal,
+        terminalFontFamily,
+        terminalFontSize,
+        ...settings
+      }) => ({
+        ...settings,
+        ...(terminalFontFamily !== undefined || fontFamilyTerminal !== undefined
+          ? { terminalFontFamily: terminalFontFamily ?? fontFamilyTerminal }
+          : {}),
+        ...(terminalFontSize !== undefined || fontSizeTerminal !== undefined
+          ? { terminalFontSize: terminalFontSize ?? fontSizeTerminal }
+          : {}),
+      }),
+      encode: (settings) => settings,
+    }),
+  ),
+);
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

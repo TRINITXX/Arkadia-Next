@@ -26,7 +26,11 @@ import {
 } from "@t3tools/contracts";
 
 import { ServerConfig } from "../../config.ts";
-import { hermesPromptSettlementBelongsToContext, makeHermesAdapter } from "./HermesAdapter.ts";
+import {
+  encodeJsonStringForDiagnostics,
+  hermesPromptSettlementBelongsToContext,
+  makeHermesAdapter,
+} from "./HermesAdapter.ts";
 const decodeHermesSettings = Schema.decodeSync(HermesSettings);
 
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
@@ -94,6 +98,14 @@ const makeTestAdapter = (binaryPath: string, options?: Parameters<typeof makeHer
     decodeHermesSettings({ binaryPath, sshTarget: "root@mock-host", remoteBinaryPath: "hermes" }),
     options,
   ).pipe(Effect.orDie);
+
+it("encodes Hermes diagnostic payloads as JSON without throwing", () => {
+  assert.equal(
+    encodeJsonStringForDiagnostics({ method: "session/update", params: { turn: 1 } }),
+    '{"method":"session/update","params":{"turn":1}}',
+  );
+  assert.isUndefined(encodeJsonStringForDiagnostics(BigInt(1)));
+});
 
 it("requires a settlement to match the live Hermes turn", () => {
   const staleTurnId = TurnId.make("stale-turn");
