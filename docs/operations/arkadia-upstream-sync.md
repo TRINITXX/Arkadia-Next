@@ -32,6 +32,8 @@ Routine review uses GPT-5.6 Luna. Conflicts, migrations, major dependency change
 
 After applying an update, Hermes runs focused checks. It pushes `main` to `origin` only when every required check passes.
 
+After a successful push, Telegram offers an `Installer` button. The production build starts only after this explicit approval. If Arkadia is open, Hermes does not close it: Telegram asks the user to close Arkadia and offers `Réessayer`. Once Arkadia is closed, the fixed local updater builds the production installer, installs it silently, restarts Arkadia, and sends a short confirmation. An installation failure sends a sanitized complete technical log.
+
 If the update still fails after two Sol repair attempts, Hermes restores the backup branch state, does not push, and sends the complete technical log as a Telegram attachment. That log is the handoff artifact for Claude Fable.
 
 ## Installed components
@@ -84,6 +86,8 @@ Dans Telegram, écris en français très simple, avec des explications courtes, 
 Quand une mise à jour acceptée doit être appliquée et que main contient du travail non commité, ne touche à rien automatiquement. Affiche seulement deux boutons : Reporter et Commit. Reporter laisse tout en attente. Commit doit d’abord rechercher les secrets, gros artefacts, fichiers générés et éléments manifestement dangereux, puis commiter uniquement le travail sûr avec une description légère de ce qui restait à commiter. Après ce commit, applique immédiatement les mises à jour acceptées.
 
 Applique seulement les groupes acceptés. Préserve l’identité Arkadia, ses fournisseurs, son apparence, sa navigation, sa sidebar et ses fonctions propres. Exécute les vérifications ciblées adaptées aux zones réellement modifiées. Ne lance pas toute la suite du monorepo sans nécessité. Pousse automatiquement main vers origin uniquement si toutes les vérifications requises réussissent.
+
+Après un push réussi, propose un bouton Installer dans Telegram. Ne compile et n’installe jamais le build de production avant ce clic. Si Arkadia est ouverte, ne la ferme jamais de force : demande simplement de la fermer et propose un bouton Réessayer. Une fois Arkadia fermée, utilise uniquement l’outil local fixe du dépôt pour compiler, installer silencieusement et relancer Arkadia. Confirme brièvement le succès. En cas d’échec, joins un journal technique complet avec les secrets masqués.
 
 En cas d’échec, autorise au maximum deux tentatives de réparation avec GPT-5.6 Sol. Si elles échouent, restaure exactement l’état de la branche de sauvegarde, ne pousse rien, conserve les propositions acceptées comme non appliquées et envoie sur Telegram un fichier journal technique complet. Le journal doit contenir les commits concernés, les commandes exécutées, les sorties utiles, les conflits, les modifications tentées, les vérifications, les erreurs et la restauration, tout en masquant les secrets. Il doit permettre à Claude Fable de reprendre le diagnostic.
 
