@@ -15,6 +15,7 @@ import {
   type PermissionUpdate,
   type SDKMessage,
   type SDKControlGetContextUsageResponse,
+  type SDKControlGetUsageResponse,
   type SDKResultMessage,
   type SettingSource,
   type SDKUserMessage,
@@ -210,6 +211,10 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly setPermissionMode: (mode: PermissionMode) => Promise<void>;
   readonly setMaxThinkingTokens: (maxThinkingTokens: number | null) => Promise<void>;
   readonly getContextUsage?: () => Promise<SDKControlGetContextUsageResponse>;
+  // Structured `/usage` data, including claude.ai plan rate-limit windows.
+  // Experimental in the SDK (name may change); optional so older runtimes and
+  // API-key sessions that lack it degrade gracefully.
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<SDKControlGetUsageResponse>;
   readonly close: () => void;
 }
 
@@ -1798,6 +1803,47 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     return normalizeClaudeContextUsageApiSnapshot(usage, totalProcessedTokens);
   });
 
+  // The streaming `rate_limit_event` only carries the currently-binding window,
+  // so it cannot show both the 5-hour and weekly quotas at once. The structured
+  // `/usage` snapshot returns every window together (utilization 0-100, ISO
+  // reset times); poll it at turn end and forward it as the same activity so
+  // the client's per-window fold surfaces both. Best-effort: absent method,
+  // API-key sessions, or errors leave the last-known values untouched.
+  const emitAccountRateLimitsSnapshot = Effect.fn("emitAccountRateLimitsSnapshot")(function* (
+    context: ClaudeSessionContext,
+  ) {
+    if (!context.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET) {
+      return;
+    }
+
+    const usage = yield* Effect.promise(async () => {
+      try {
+        // Call as a bound method: the SDK implementation relies on `this`
+        // (it dispatches a `get_usage` control request via `this.request`).
+        return await context.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?.();
+      } catch {
+        return undefined;
+      }
+    });
+    if (!usage || !usage.rate_limits_available || !usage.rate_limits) {
+      return;
+    }
+
+    const stamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "account.rate-limits.updated",
+      eventId: stamp.eventId,
+      provider: PROVIDER,
+      createdAt: stamp.createdAt,
+      threadId: context.session.threadId,
+      ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+      payload: {
+        rateLimits: usage.rate_limits,
+      },
+      providerRefs: nativeProviderRefs(context),
+    });
+  });
+
   const emitProposedPlanCompleted = Effect.fn("emitProposedPlanCompleted")(function* (
     context: ClaudeSessionContext,
     input: {
@@ -1963,6 +2009,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         rawMethod: "claude/result",
         rawPayload: result ?? { status },
       });
+      yield* emitAccountRateLimitsSnapshot(context);
 
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
@@ -2037,6 +2084,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       rawMethod: "claude/result",
       rawPayload: result ?? { status },
     });
+    yield* emitAccountRateLimitsSnapshot(context);
 
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({

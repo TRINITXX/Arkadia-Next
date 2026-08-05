@@ -15,7 +15,7 @@ import * as Result from "effect/Result";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { createModelCapabilities } from "@t3tools/shared/model";
-import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { resolveSpawnCommand, singleQuotePosixShellArg } from "@t3tools/shared/shell";
 
 import {
   buildServerProvider,
@@ -156,19 +156,18 @@ const runHermesVersionCommand = (
     const command = hermesSettings.binaryPath || "ssh";
     const sshTarget = hermesSettings.sshTarget?.trim() || DEFAULT_SSH_TARGET;
     const remoteBinary = hermesSettings.remoteBinaryPath?.trim() || DEFAULT_REMOTE_BINARY;
+    // ssh joins the remote command args with spaces before the remote shell
+    // re-splits them, so the `bash -lc` script must be a single, self-quoted
+    // ssh argument — otherwise `bash -lc hermes --version` runs bare `hermes`
+    // (with `--version` as $0), which never returns and times out.
+    const remoteScript = `${remoteBinary} --version`;
     const args = [
       "-o",
       "BatchMode=yes",
       "-o",
       "ConnectTimeout=8",
       sshTarget,
-      "sudo",
-      "-u",
-      "hermes",
-      "-H",
-      "bash",
-      "-lc",
-      `${remoteBinary} --version`,
+      `sudo -u hermes -H bash -lc ${singleQuotePosixShellArg(remoteScript)}`,
     ];
     const spawnCommand = yield* resolveSpawnCommand(command, args, {
       env: environment,

@@ -257,18 +257,33 @@ type NormalizedRateLimitWindow = {
 };
 
 // resetsAt arrives as an epoch value whose unit is provider-dependent (Claude's
-// SDK leaves it unspecified; Codex uses int64). Normalize to epoch milliseconds:
-// anything below ~1e12 is treated as seconds.
+// streaming event leaves it unspecified; Codex uses int64). Normalize to epoch
+// milliseconds: anything below ~1e12 is treated as seconds.
 function toEpochMs(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
   return value < 1e12 ? Math.round(value * 1000) : Math.round(value);
 }
 
+// Claude's structured `/usage` snapshot dates its windows with ISO 8601
+// strings, unlike the streaming event's numeric epoch. Parse to epoch ms.
+function isoToEpochMs(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 // Normalize the provider-specific rate-limit payload into a small canonical
-// shape the client can read uniformly. Claude reports ONE window per event
-// (`rate_limit_info` keyed by `rateLimitType`); Codex reports both at once as
-// `primary`/`secondary`. Only the five-hour and weekly (seven-day) windows are
-// surfaced. The activity payload is `Schema.Unknown`, so no contract change.
+// shape (utilization 0-100) the client can read uniformly. Three shapes flow
+// through here:
+//  - Claude streaming `rate_limit_event`: ONE window keyed by `rateLimitType`,
+//    with `utilization` as a 0-1 fraction (scaled up here). Only ever the
+//    currently-binding window, so it cannot surface both windows on its own.
+//  - Claude structured `/usage` snapshot: ALL windows at once under
+//    `five_hour`/`seven_day*`, `utilization` already 0-100, `resets_at` ISO.
+//  - Codex `account/rateLimits/updated`: `primary`/`secondary` in one snapshot,
+//    `usedPercent` already 0-100, `resetsAt` epoch.
+// Only the five-hour and weekly (seven-day) windows are surfaced. The activity
+// payload is `Schema.Unknown`, so no contract change.
 function buildAccountRateLimitsActivityPayload(
   event: ProviderRuntimeEvent,
 ): { readonly windows: ReadonlyArray<NormalizedRateLimitWindow> } | undefined {
@@ -288,7 +303,62 @@ function buildAccountRateLimitsActivityPayload(
           ? ("seven_day" as const)
           : null;
     if (key !== null && typeof info.utilization === "number") {
-      windows.push({ key, utilization: info.utilization, resetsAt: toEpochMs(info.resetsAt) });
+      // The streaming event reports utilization as a 0-1 fraction; the rest of
+      // the pipeline works in 0-100, so scale it here.
+      windows.push({
+        key,
+        utilization: info.utilization * 100,
+        resetsAt: toEpochMs(info.resetsAt),
+      });
+    }
+    return windows.length > 0 ? { windows } : undefined;
+  }
+
+  // Claude structured `/usage` snapshot: every window present at once.
+  const usageSnapshot = raw as {
+    five_hour?: unknown;
+    seven_day?: unknown;
+    seven_day_opus?: unknown;
+    seven_day_sonnet?: unknown;
+  };
+  if ("five_hour" in usageSnapshot || "seven_day" in usageSnapshot) {
+    const asUsageWindow = (value: unknown): Record<string, unknown> | null =>
+      value &&
+      typeof value === "object" &&
+      typeof (value as Record<string, unknown>).utilization === "number"
+        ? (value as Record<string, unknown>)
+        : null;
+
+    const fiveHour = asUsageWindow(usageSnapshot.five_hour);
+    if (fiveHour) {
+      windows.push({
+        key: "five_hour",
+        utilization: fiveHour.utilization as number,
+        resetsAt: isoToEpochMs(fiveHour.resets_at),
+      });
+    }
+
+    // The weekly limit can be reported account-wide (`seven_day`) and/or
+    // per-model (`seven_day_opus`/`seven_day_sonnet`). Surface the binding
+    // one — the highest utilization — as the single weekly window.
+    const sevenDayCandidates = [
+      asUsageWindow(usageSnapshot.seven_day),
+      asUsageWindow(usageSnapshot.seven_day_opus),
+      asUsageWindow(usageSnapshot.seven_day_sonnet),
+    ].filter((candidate): candidate is Record<string, unknown> => candidate !== null);
+    const binding = sevenDayCandidates.reduce<Record<string, unknown> | null>(
+      (best, candidate) =>
+        best === null || (candidate.utilization as number) > (best.utilization as number)
+          ? candidate
+          : best,
+      null,
+    );
+    if (binding) {
+      windows.push({
+        key: "seven_day",
+        utilization: binding.utilization as number,
+        resetsAt: isoToEpochMs(binding.resets_at),
+      });
     }
     return windows.length > 0 ? { windows } : undefined;
   }

@@ -1723,24 +1723,81 @@ label:has(> select#reasoning-effort) select {
   font-size: var(--agent-font-size, inherit);
 }
 
-/* Chrome background (frosted-glass gradient presets), dark mode only. The
-   gradient sits behind the app; the sidebar + tab strip become translucent to
-   reveal it, while content + terminals stay opaque (own --background). */
-:root[data-chrome-glass="on"] body {
-  background-image: var(--surface-grain), var(--app-chrome-image);
-  background-repeat: repeat, no-repeat;
-  background-size:
-    256px 256px,
-    cover;
-  background-position:
-    0 0,
-    center;
-  background-attachment: scroll, fixed;
+/* Chrome background (frosted-glass gradient presets), dark mode only. This is
+   Arkadia v1's layering model: one gradient on the full-window app wrapper,
+   then translucent chrome surfaces above it. The conversation and terminal
+   roots paint their own opaque --background below the chrome. */
+:root {
+  --glass-bg: rgba(17, 20, 28, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: 18px;
 }
 
-:root[data-chrome-glass="on"] [data-slot="sidebar"],
-:root[data-chrome-glass="on"] .workspace-topbar {
-  background-color: color-mix(in srgb, var(--sidebar) var(--glass-opacity), transparent) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+/* The only gradient sheet: one continuous field behind sidebar and workspace. */
+:root[data-chrome-glass="on"] [data-slot="sidebar-wrapper"] {
+  background-image: var(--app-chrome-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Flatten the sidebar's own opaque layers so its backdrop-filter blurs the
+   wrapper gradient rather than solid zinc. */
+:root[data-chrome-glass="on"] [data-slot="sidebar-container"],
+:root[data-chrome-glass="on"] [data-arkadia-sidebar] {
+  background-color: transparent !important;
+}
+
+/* A route with Arkadia tabs must let the wrapper show through behind its two
+   chrome rows. Content immediately below them remains opaque on its own root. */
+:root[data-chrome-glass="on"] [data-slot="sidebar-inset"]:has(> [data-arkadia-workspace-tabs]) {
+  background-color: transparent !important;
+  background-image: none;
+}
+
+/* ChatView used to paint --background behind both its toolbar and content.
+   Keep only the content row opaque so the wrapper gradient reaches the toolbar. */
+:root[data-chrome-glass="on"] [data-chat-view] {
+  background-color: transparent !important;
+}
+
+/* Same glass recipe and constants as v1's .chrome-surface. */
+:root[data-chrome-glass="on"] [data-slot="sidebar-inner"],
+:root[data-chrome-glass="on"] [data-arkadia-workspace-tabs],
+:root[data-chrome-glass="on"] [data-chat-header] {
+  background-color: var(--glass-bg) !important;
+  border-color: var(--glass-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+}
+
+/* Opaque zinc fills inside a glass surface (active/hover rows, project pills,
+   the Active/Inactive toggle…) become faint white chips, so they read as frosted
+   selections instead of solid grey boxes — v1's translation, same values. */
+:root[data-chrome-glass="on"] [data-slot="sidebar-inner"] .bg-zinc-950,
+:root[data-chrome-glass="on"] [data-slot="sidebar-inner"] .bg-zinc-900\/90 {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+:root[data-chrome-glass="on"] [data-slot="sidebar-inner"] .bg-zinc-900 {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+:root[data-chrome-glass="on"] [data-slot="sidebar-inner"] .bg-zinc-800 {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+:root[data-chrome-glass="on"] [data-slot="sidebar-inner"] .hover\:bg-zinc-900:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+:root[data-chrome-glass="on"] [data-slot="sidebar-inner"] .hover\:bg-zinc-800:hover {
+  background-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+/* Tabs in the frosted strip become faint white chips too (v1). */
+:root[data-chrome-glass="on"] [data-workspace-tab] {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+:root[data-chrome-glass="on"] [data-workspace-tab]:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+:root[data-chrome-glass="on"] [data-workspace-tab][data-active="true"] {
+  background-color: rgba(255, 255, 255, 0.1) !important;
 }

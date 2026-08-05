@@ -1,0 +1,13 @@
+- generic [active] [ref=e1]:
+    - generic [ref=e2]:
+        - heading "v1 recipe (gradient on root + backdrop-filter glass)" [level=3] [ref=e3]
+        - generic [ref=e6]:
+            - generic [ref=e7]: Claude Desktop
+            - generic [ref=e8]: ● Test de conversation
+            - generic [ref=e9]: ● Test de conversation
+    - generic [ref=e14]:
+        - heading "my recipe (per-surface gradient + glass-bg overlay, no fixed)" [level=3] [ref=e15]
+        - generic [ref=e18]:
+            - generic [ref=e19]: Claude Desktop
+            - generic [ref=e20]: ● Test de conversation
+            - generic [ref=e21]: ● Test de conversation

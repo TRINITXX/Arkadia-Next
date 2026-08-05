@@ -1,4 +1,5 @@
-import { ClockIcon } from "lucide-react";
+import { CalendarDaysIcon, ClockIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -58,32 +59,22 @@ function QuotaRow(props: { label: string; window: AccountRateLimitWindow; nowMs:
 }
 
 /**
- * Claude subscription quota (5-hour + weekly windows) shown next to the context
- * meter. The ring reflects the binding (higher) window; the popover breaks out
- * each window with its own bar and a live countdown to reset. Distinct from the
- * context ring by colour and a centred clock glyph. Renders nothing when no
- * quota data is available (API-key sessions, or before the first turn).
+ * A single Claude quota window rendered as its own ring, with a centred glyph
+ * that tells the two windows apart at a glance (clock = 5-hour, calendar =
+ * weekly) and a popover breaking out the percentage plus a live reset
+ * countdown. Ring colour reflects that window's own utilization.
  */
-export function AccountQuotaMeter(props: { quota: AccountRateLimits }) {
-  const { fiveHour, sevenDay } = props.quota;
-  const [nowMs, setNowMs] = useState(() => Date.now());
-
-  useEffect(() => {
-    const interval = setInterval(() => setNowMs(Date.now()), 30_000);
-    return () => clearInterval(interval);
-  }, []);
-
-  if (!fiveHour && !sevenDay) return null;
-
-  // The ring shows whichever window is closest to its limit.
-  const bindingPercentage = Math.max(
-    0,
-    Math.min(100, Math.max(fiveHour?.utilization ?? 0, sevenDay?.utilization ?? 0)),
-  );
+function QuotaRing(props: {
+  label: string;
+  window: AccountRateLimitWindow;
+  nowMs: number;
+  icon: ReactNode;
+}) {
+  const percentage = Math.max(0, Math.min(100, props.window.utilization));
   const radius = 9.75;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - bindingPercentage / 100);
-  const color = usageColorFor(bindingPercentage);
+  const dashOffset = circumference * (1 - percentage / 100);
+  const color = usageColorFor(percentage);
 
   return (
     <Popover>
@@ -99,7 +90,7 @@ export function AccountQuotaMeter(props: { quota: AccountRateLimits }) {
               "hover:bg-accent data-[pressed]:bg-accent",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
             )}
-            aria-label={`Quota Claude ${formatPercentage(bindingPercentage)} utilisé`}
+            aria-label={`Quota Claude ${props.label} ${formatPercentage(percentage)} utilisé`}
           >
             <span className="relative flex size-5 items-center justify-center">
               <svg
@@ -128,10 +119,7 @@ export function AccountQuotaMeter(props: { quota: AccountRateLimits }) {
                   className="transition-[stroke-dashoffset,stroke] duration-500 ease-out motion-reduce:transition-none"
                 />
               </svg>
-              <ClockIcon
-                className="relative size-2.5 text-muted-foreground/70"
-                aria-hidden="true"
-              />
+              {props.icon}
             </span>
           </button>
         }
@@ -145,10 +133,56 @@ export function AccountQuotaMeter(props: { quota: AccountRateLimits }) {
       >
         <div className="flex flex-col gap-2.5 p-[var(--floating-content-inset)]">
           <div className="font-medium text-muted-foreground text-xs">Quota Claude</div>
-          {fiveHour ? <QuotaRow label="5 heures" window={fiveHour} nowMs={nowMs} /> : null}
-          {sevenDay ? <QuotaRow label="Semaine" window={sevenDay} nowMs={nowMs} /> : null}
+          <QuotaRow label={props.label} window={props.window} nowMs={props.nowMs} />
         </div>
       </PopoverPopup>
     </Popover>
+  );
+}
+
+/**
+ * Claude subscription quota shown next to the context meter as two separate
+ * rings — the 5-hour window on the left, the weekly window on its right — each
+ * reflecting its own utilization with a live reset countdown in its popover.
+ * Distinct from the context ring by colour and a centred glyph. Renders nothing
+ * when no quota data is available (API-key sessions, or before the first turn).
+ */
+export function AccountQuotaMeter(props: { quota: AccountRateLimits }) {
+  const { fiveHour, sevenDay } = props.quota;
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!fiveHour && !sevenDay) return null;
+
+  return (
+    <>
+      {fiveHour ? (
+        <QuotaRing
+          label="5 heures"
+          window={fiveHour}
+          nowMs={nowMs}
+          icon={
+            <ClockIcon className="relative size-2.5 text-muted-foreground/70" aria-hidden="true" />
+          }
+        />
+      ) : null}
+      {sevenDay ? (
+        <QuotaRing
+          label="Semaine"
+          window={sevenDay}
+          nowMs={nowMs}
+          icon={
+            <CalendarDaysIcon
+              className="relative size-2.5 text-muted-foreground/70"
+              aria-hidden="true"
+            />
+          }
+        />
+      ) : null}
+    </>
   );
 }

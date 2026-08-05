@@ -20,6 +20,7 @@ import {
   resolveKnownWindowsCliDirs,
   resolveSpawnCommand,
   resolveWindowsEnvironment,
+  singleQuotePosixShellArg,
   SpawnExecutableResolution,
   WindowsShellEnvironment,
   type WindowsShellEnvironmentReader,
@@ -34,6 +35,24 @@ const withWindowsEnvironmentMocks = <A, E, R>(
     Effect.provideService(WindowsShellEnvironment, readEnvironment),
     Effect.provideService(CommandAvailability, commandAvailable),
   );
+
+describe("singleQuotePosixShellArg", () => {
+  it("wraps a plain command in single quotes so ssh's space-join preserves it", () => {
+    expect(singleQuotePosixShellArg("hermes --version")).toBe("'hermes --version'");
+  });
+
+  it("escapes embedded single quotes", () => {
+    expect(singleQuotePosixShellArg("echo 'hi'")).toBe("'echo '\\''hi'\\'''");
+  });
+
+  it("survives a re-split by the remote shell", () => {
+    const quoted = singleQuotePosixShellArg("HERMES_ACP_SKIP_CONFIGURED_MCP=1 hermes acp");
+    // Emulate ssh sending `bash -lc <quoted>` and the remote shell re-splitting:
+    // the quoted script must collapse back to a single argument.
+    const remoteWords = `bash -lc ${quoted}`.match(/'[^']*'|\S+/g) ?? [];
+    expect(remoteWords).toEqual(["bash", "-lc", "'HERMES_ACP_SKIP_CONFIGURED_MCP=1 hermes acp'"]);
+  });
+});
 
 describe("extractPathFromShellOutput", () => {
   it("extracts the path between capture markers", () => {

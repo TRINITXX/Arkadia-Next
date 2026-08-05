@@ -1125,7 +1125,11 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "account/rateLimits/updated") {
-    if (!readPayload(EffectCodexSchema.V2AccountRateLimitsUpdatedNotification, event.payload)) {
+    const payload = readPayload(
+      EffectCodexSchema.V2AccountRateLimitsUpdatedNotification,
+      event.payload,
+    );
+    if (!payload) {
       return [];
     }
     return [
@@ -1133,7 +1137,10 @@ function mapToRuntimeEvents(
         type: "account.rate-limits.updated",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          rateLimits: event.payload ?? {},
+          // The notification wraps the snapshot under `rateLimits`; forward the
+          // snapshot itself so ingestion reads `primary`/`secondary` directly
+          // instead of one level too high (which surfaced no windows at all).
+          rateLimits: payload.rateLimits,
         },
       },
     ];

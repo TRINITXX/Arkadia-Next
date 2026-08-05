@@ -29,6 +29,9 @@ describe("buildHermesAcpSpawnInput", () => {
     expect(spawn.cwd).toBe("/tmp/project");
     // No `-t` (raw stdio for ACP), BatchMode + keepalive, and the MCP skip flag
     // injected in the *remote* command string (ssh does not forward local env).
+    // The whole `sudo … bash -lc <script>` is a single, self-quoted ssh argument:
+    // ssh space-joins its command args, so separate tokens would make the remote
+    // shell run bare `hermes` and never launch `hermes acp`.
     expect(spawn.args).toEqual([
       "-o",
       "BatchMode=yes",
@@ -37,31 +40,36 @@ describe("buildHermesAcpSpawnInput", () => {
       "-o",
       "ServerAliveCountMax=3",
       "root@vps.example",
-      "sudo",
-      "-u",
-      "hermes",
-      "-H",
-      "bash",
-      "-lc",
-      "HERMES_ACP_SKIP_CONFIGURED_MCP=1 hermes acp",
+      "sudo -u hermes -H bash -lc 'HERMES_ACP_SKIP_CONFIGURED_MCP=1 hermes acp'",
     ]);
     expect(spawn.args).not.toContain("-t");
+    // Regression guard: after ssh space-joins the command args, the remote shell
+    // must still see the script as one quoted word.
+    expect(spawn.args.join(" ")).toContain(
+      "bash -lc 'HERMES_ACP_SKIP_CONFIGURED_MCP=1 hermes acp'",
+    );
   });
 
   it("falls back to the default ssh binary, target and remote binary", () => {
     const spawn = buildHermesAcpSpawnInput(null, "/tmp/project");
     expect(spawn.command).toBe("ssh");
     expect(spawn.args).toContain("root@37.27.176.67");
-    expect(spawn.args.at(-1)).toBe("HERMES_ACP_SKIP_CONFIGURED_MCP=1 hermes acp");
+    expect(spawn.args.at(-1)).toBe(
+      "sudo -u hermes -H bash -lc 'HERMES_ACP_SKIP_CONFIGURED_MCP=1 hermes acp'",
+    );
   });
 
   it("honors a custom remote binary path", () => {
     const spawn = buildHermesAcpSpawnInput(
-      { binaryPath: "ssh", sshTarget: "root@vps", remoteBinaryPath: "/home/hermes/.local/bin/hermes" },
+      {
+        binaryPath: "ssh",
+        sshTarget: "root@vps",
+        remoteBinaryPath: "/home/hermes/.local/bin/hermes",
+      },
       "/tmp/project",
     );
     expect(spawn.args.at(-1)).toBe(
-      "HERMES_ACP_SKIP_CONFIGURED_MCP=1 /home/hermes/.local/bin/hermes acp",
+      "sudo -u hermes -H bash -lc 'HERMES_ACP_SKIP_CONFIGURED_MCP=1 /home/hermes/.local/bin/hermes acp'",
     );
   });
 });

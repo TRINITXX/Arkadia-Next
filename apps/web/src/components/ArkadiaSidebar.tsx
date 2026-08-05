@@ -478,7 +478,10 @@ export default function ArkadiaSidebar() {
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-zinc-950 text-zinc-300">
+    <div
+      data-arkadia-sidebar=""
+      className="flex h-full min-h-0 w-full flex-col bg-zinc-950 text-zinc-300"
+    >
       <div className="flex shrink-0 border-b border-zinc-800">
         <button
           className={`flex-1 px-2 py-2 text-xs ${

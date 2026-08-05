@@ -7,6 +7,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 import { normalizeModelSlug } from "@t3tools/shared/model";
+import { singleQuotePosixShellArg } from "@t3tools/shared/shell";
 
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
@@ -70,6 +71,10 @@ export function buildHermesAcpSpawnInput(
   const sshTarget = hermesSettings?.sshTarget?.trim() || DEFAULT_SSH_TARGET;
   const remoteBinary = hermesSettings?.remoteBinaryPath?.trim() || DEFAULT_REMOTE_BINARY;
   const remoteCommand = `HERMES_ACP_SKIP_CONFIGURED_MCP=1 ${remoteBinary} acp`;
+  // ssh joins the remote command args with spaces before the remote shell
+  // re-splits them, so the whole `sudo … bash -lc <script>` must be a single ssh
+  // argument with the script self-quoted — otherwise `bash -lc FOO=1 hermes acp`
+  // only applies the FOO=1 assignment and never launches `hermes acp`.
   return {
     command: sshBinary,
     args: [
@@ -80,13 +85,7 @@ export function buildHermesAcpSpawnInput(
       "-o",
       "ServerAliveCountMax=3",
       sshTarget,
-      "sudo",
-      "-u",
-      HERMES_REMOTE_USER,
-      "-H",
-      "bash",
-      "-lc",
-      remoteCommand,
+      `sudo -u ${HERMES_REMOTE_USER} -H bash -lc ${singleQuotePosixShellArg(remoteCommand)}`,
     ],
     cwd,
     ...(environment ? { env: environment } : {}),

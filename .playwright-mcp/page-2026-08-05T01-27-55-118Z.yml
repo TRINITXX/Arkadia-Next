@@ -1,0 +1,12 @@
+- generic [ref=e2]:
+    - generic [ref=e4]:
+        - generic [ref=e5]: VL-Driver-Dispatch
+        - generic [ref=e6]: ● Test de conversation
+        - generic [ref=e7]: ● Autre conversation
+    - generic [ref=e8]:
+        - generic [ref=e9]: Test de conversation
+        - generic [ref=e11]:
+            - generic [ref=e12]: ccd
+            - generic [ref=e13]: ccdr
+            - generic [ref=e14]: npx expo start
+        - paragraph [ref=e16]: Zone de conversation — OPAQUE (aucun dégradé).

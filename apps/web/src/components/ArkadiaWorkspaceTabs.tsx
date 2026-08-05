@@ -127,6 +127,8 @@ function SortableWorkspaceTab({
   return (
     <div
       ref={setNodeRef}
+      data-workspace-tab=""
+      data-active={active ? "true" : "false"}
       className={`${workspaceTabClassName(active)} touch-none ${
         isDragging ? "relative z-10 opacity-70" : ""
       }`}

@@ -70,6 +70,20 @@ function escapeWindowsShellArg(arg: string): string {
 }
 
 /**
+ * Single-quotes a string so it survives one round of POSIX shell word splitting.
+ *
+ * `ssh host a b c` does not preserve the local argv boundaries: the client joins
+ * the command arguments with spaces and hands the resulting string to the remote
+ * login shell, which re-splits it. Any remote command that must stay a single
+ * word (e.g. the script passed to `bash -lc`) therefore has to carry its own
+ * quoting. Wrapping in single quotes and escaping embedded single quotes
+ * (`'` -> `'\''`) is the portable way to do that.
+ */
+export function singleQuotePosixShellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Escapes arguments for shell-mode spawns: applies {@link escapeWindowsShellArg}
  * when the platform is `win32` (where `shell: true` routes through `cmd.exe`)
  * and returns the arguments untouched everywhere else.
