@@ -156,6 +156,13 @@ function makeHarness(config?: {
   readonly baseDir?: string;
   readonly claudeConfig?: Partial<ClaudeSettings>;
   readonly instanceId?: ProviderInstanceId;
+  readonly harnessProfile?: Pick<
+    ClaudeAdapterLiveOptions,
+    | "getModelCapabilities"
+    | "resolveApiModelId"
+    | "resolveSessionEnvironment"
+    | "sessionModelSwitch"
+  >;
 }) {
   const query = new FakeClaudeQuery();
   let createInput:
@@ -171,6 +178,7 @@ function makeHarness(config?: {
       createInput = input;
       return query;
     },
+    ...config?.harnessProfile,
     ...(config?.nativeEventLogger
       ? {
           nativeEventLogger: config.nativeEventLogger,
@@ -431,6 +439,50 @@ describe("ClaudeAdapterLive", () => {
 
       const createInput = harness.getLastCreateQueryInput();
       assert.equal(createInput?.options.effort, "max");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("accepts a model and environment profile for Claude-compatible harnesses", () => {
+    const harness = makeHarness({
+      instanceId: ProviderInstanceId.make("kimi"),
+      harnessProfile: {
+        getModelCapabilities: () => ({
+          optionDescriptors: [
+            {
+              id: "effort",
+              label: "Thinking",
+              type: "select",
+              currentValue: "max",
+              options: [{ id: "max", label: "Max", isDefault: true }],
+            },
+          ],
+        }),
+        resolveApiModelId: (selection) => `kimi:${selection.model}`,
+        resolveSessionEnvironment: ({ modelSelection, environment }) => ({
+          ...environment,
+          KIMI_SELECTED_MODEL: modelSelection?.model ?? "",
+        }),
+        sessionModelSwitch: "unsupported",
+      },
+    });
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        modelSelection: createModelSelection(ProviderInstanceId.make("kimi"), "k3[1m]"),
+        runtimeMode: "full-access",
+      });
+
+      const createInput = harness.getLastCreateQueryInput();
+      assert.equal(createInput?.options.model, "kimi:k3[1m]");
+      assert.equal(createInput?.options.effort, "max");
+      assert.equal(createInput?.options.env?.KIMI_SELECTED_MODEL, "k3[1m]");
+      assert.equal(adapter.capabilities.sessionModelSwitch, "unsupported");
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

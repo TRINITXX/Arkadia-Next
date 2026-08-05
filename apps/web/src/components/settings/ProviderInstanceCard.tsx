@@ -492,13 +492,36 @@ export function ProviderInstanceCard({
   };
 
   const updateEnvironment = (environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => {
-    const cleaned = environment.filter((variable) => variable.name.trim().length > 0);
+    const managedCredential = driverOption?.credential
+      ? (instance.environment ?? []).filter(
+          (variable) => variable.name === driverOption.credential?.environmentVariable,
+        )
+      : [];
+    const cleaned = [...managedCredential, ...environment].filter(
+      (variable) => variable.name.trim().length > 0,
+    );
     const { environment: _omit, ...rest } = instance;
     onUpdate(
       cleaned.length > 0
         ? ({ ...rest, environment: cleaned } as ProviderInstanceConfig)
         : (rest as ProviderInstanceConfig),
     );
+  };
+
+  const updateCredential = (value: string) => {
+    const credential = driverOption?.credential;
+    const trimmed = value.trim();
+    if (!credential || trimmed.length === 0) return;
+    const environment = (instance.environment ?? []).filter(
+      (variable) => variable.name !== credential.environmentVariable,
+    );
+    onUpdate({
+      ...instance,
+      environment: [
+        ...environment,
+        { name: credential.environmentVariable, value: trimmed, sensitive: true },
+      ],
+    });
   };
 
   const titleIconNode = driverKind ? (
@@ -757,9 +780,42 @@ export function ProviderInstanceCard({
               />
             </div>
 
+            {driverOption?.credential ? (
+              <div>
+                <label htmlFor={`provider-instance-${instanceId}-credential`} className="block">
+                  <span className="text-xs font-medium text-foreground">
+                    {driverOption.credential.label}
+                  </span>
+                  <DraftInput
+                    id={`provider-instance-${instanceId}-credential`}
+                    type="password"
+                    className="mt-1.5"
+                    value=""
+                    onCommit={updateCredential}
+                    placeholder={
+                      (instance.environment ?? []).some(
+                        (variable) =>
+                          variable.name === driverOption.credential?.environmentVariable &&
+                          (variable.valueRedacted || variable.value.length > 0),
+                      )
+                        ? "Configured — enter a new key to replace"
+                        : driverOption.credential.placeholder
+                    }
+                    autoComplete="new-password"
+                    spellCheck={false}
+                  />
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {driverOption.credential.description}
+                  </span>
+                </label>
+              </div>
+            ) : null}
+
             <div>
               <ProviderEnvironmentSection
-                environment={instance.environment ?? []}
+                environment={(instance.environment ?? []).filter(
+                  (variable) => variable.name !== driverOption?.credential?.environmentVariable,
+                )}
                 onChange={updateEnvironment}
               />
             </div>

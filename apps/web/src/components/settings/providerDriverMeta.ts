@@ -4,6 +4,7 @@ import {
   CursorSettings,
   GrokSettings,
   HermesSettings,
+  KimiSettings,
   OpenCodeSettings,
   ProviderDriverKind,
 } from "@t3tools/contracts";
@@ -13,10 +14,12 @@ import {
   ClaudeAI,
   CursorIcon,
   GrokIcon,
+  KimiIcon,
   type Icon,
   OpenAI,
   OpenCodeIcon,
 } from "../Icons";
+import type { ProviderCredentialDefinition } from "./providerCredentials";
 
 type ProviderSettingsSchema = {
   readonly fields: Readonly<Record<string, Schema.Top>>;
@@ -33,6 +36,7 @@ export interface ProviderClientDefinition {
   readonly label: string;
   readonly icon: Icon;
   readonly settingsSchema: ProviderSettingsSchema;
+  readonly credential?: ProviderCredentialDefinition;
   /**
    * Optional short label rendered as a `variant="warning"` badge next to
    * the instance title. Used to flag drivers that still ship under an
@@ -55,6 +59,18 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     label: "Claude",
     icon: ClaudeAI,
     settingsSchema: ClaudeSettings,
+  },
+  {
+    value: ProviderDriverKind.make("kimi"),
+    label: "Kimi",
+    icon: KimiIcon,
+    settingsSchema: KimiSettings,
+    credential: {
+      label: "Kimi API key",
+      environmentVariable: "ANTHROPIC_API_KEY",
+      placeholder: "sk-kimi-…",
+      description: "Stored encrypted by Arkadia and only exposed to this Kimi instance.",
+    },
   },
   {
     value: ProviderDriverKind.make("cursor"),
