@@ -107,21 +107,57 @@ export function buildRecentSessionRows(input: BuildRecentSessionRowsInput): Rece
     .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 }
 
-function utcDayNumber(value: Date): number {
-  return Math.floor(
-    Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()) / 86_400_000,
-  );
+function calendarDayNumber(value: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((candidate) => candidate.type === type)?.value ?? 0);
+  return Math.floor(Date.UTC(part("year"), part("month") - 1, part("day")) / 86_400_000);
+}
+
+export function formatRecentSessionTime(
+  updatedAt: string,
+  locale = "fr-FR",
+  timeZone?: string,
+): string {
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
+  }).format(new Date(updatedAt));
+}
+
+export function formatRecentSessionDateLabel(
+  updatedAt: string,
+  now: Date,
+  locale = "fr-FR",
+  timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+): string {
+  const differenceInDays =
+    calendarDayNumber(now, timeZone) - calendarDayNumber(new Date(updatedAt), timeZone);
+  if (differenceInDays <= 0) return "Aujourd’hui";
+  if (differenceInDays === 1) return "Hier";
+  return new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone,
+  }).format(new Date(updatedAt));
 }
 
 function dateBucket(
   updatedAt: string,
   now: Date,
 ): { readonly key: string; readonly label: string } {
-  const differenceInDays = utcDayNumber(now) - utcDayNumber(new Date(updatedAt));
-  if (differenceInDays <= 0) return { key: "today", label: "Aujourd’hui" };
-  if (differenceInDays === 1) return { key: "yesterday", label: "Hier" };
-  if (differenceInDays <= 7) return { key: "last-seven-days", label: "7 derniers jours" };
-  return { key: "older", label: "Plus ancien" };
+  const date = new Date(updatedAt);
+  return {
+    key: `date:${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`,
+    label: formatRecentSessionDateLabel(updatedAt, now),
+  };
 }
 
 export function groupRecentSessionRows(

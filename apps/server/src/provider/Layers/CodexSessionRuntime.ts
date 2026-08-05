@@ -549,7 +549,7 @@ function readNotificationThreadId(notification: CodexServerNotification): string
   }
 }
 
-function readRouteFields(notification: CodexServerNotification): {
+export function readCodexNotificationRouteFields(notification: CodexServerNotification): {
   readonly turnId: TurnId | undefined;
   readonly itemId: ProviderItemId | undefined;
 } {
@@ -572,6 +572,7 @@ function readRouteFields(notification: CodexServerNotification): {
       };
     case "turn/diff/updated":
     case "turn/plan/updated":
+    case "thread/tokenUsage/updated":
       return {
         turnId: TurnId.make(notification.params.turnId),
         itemId: undefined,
@@ -850,7 +851,7 @@ export const makeCodexSessionRuntime = (
     const handleRawNotification = (notification: CodexServerNotification) =>
       Effect.gen(function* () {
         const payload = notification.params;
-        const route = readRouteFields(notification);
+        const route = readCodexNotificationRouteFields(notification);
         const collabReceiverTurns = yield* Ref.get(collabReceiverTurnsRef);
         const childParentTurnId = (() => {
           const providerConversationId = readNotificationThreadId(notification);

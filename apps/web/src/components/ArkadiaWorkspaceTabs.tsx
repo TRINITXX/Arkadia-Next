@@ -4,7 +4,6 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { canSettle, effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
@@ -24,13 +23,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Plus, SquareTerminalIcon, X } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo } from "react";
 
 import { DraftId, useComposerDraftStore } from "../composerDraftStore";
-import { useClientSettings } from "../hooks/useSettings";
-import { useLeaveToNextActiveProject } from "../hooks/useLeaveToNextActiveProject";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
-import { useNowMinute } from "../hooks/useNowMinute";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useThreadShells } from "../state/entities";
 import { threadEnvironment } from "../state/threads";
@@ -39,13 +35,14 @@ import { buildThreadRouteParams } from "../threadRoutes";
 import { useUiStateStore } from "../uiStateStore";
 import {
   arkadiaWorkspaceTabKey,
-  buildArkadiaWorkspaceTabs,
+  buildArkadiaWorkspaceTabItems,
+  closeArkadiaDraftTab,
+  handleArkadiaWorkspaceTabMouseDown,
   prependArkadiaWorkspaceTabKey,
-  resolveArkadiaDraftTabId,
   resolveArkadiaTabAfterClose,
   resolveArkadiaThreadIndicator,
+  type ArkadiaWorkspaceTabItem,
 } from "./arkadiaSidebarModel";
-import { orderItemsByPreferredIds } from "./Sidebar.logic";
 import { selectProjectTerminals, useProjectTerminalsStore } from "./terminal/projectTerminalsStore";
 import { useCloseProjectTerminal } from "./terminal/useCloseProjectTerminal";
 import { useWorkspaceTabOrderStore } from "./workspaceTabOrderStore";
@@ -58,9 +55,8 @@ interface ArkadiaWorkspaceTabsProps {
   /** Set when a project terminal tab — not a conversation — is on screen. */
   readonly activeTerminalId?: string | null;
   /**
-   * Conversation to keep in the bar even if it is settled or was closed —
-   * the one the user left behind to open a terminal. Without it, opening a
-   * terminal from a settled conversation would make its tab vanish.
+   * Conversation to keep in the bar while a terminal route replaces it on
+   * screen. The route itself cannot provide an active conversation id.
    */
   readonly keepVisibleThreadId?: ThreadId | null;
 }
@@ -103,10 +99,11 @@ function StatusDot({ thread }: { readonly thread: EnvironmentThreadShell }) {
  * ordered list so any tab can be dragged in front of any other; the key is
  * prefixed per family so a terminal id can never collide with a thread key.
  */
-type WorkspaceTabItem =
-  | { readonly kind: "thread"; readonly key: string; readonly thread: EnvironmentThreadShell }
-  | { readonly kind: "draft"; readonly key: string }
-  | { readonly kind: "terminal"; readonly key: string; readonly terminalId: string };
+interface VisibleDraft {
+  readonly draftId: DraftId;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+}
 
 /** Wraps a tab so it can be picked up and dropped elsewhere in the bar. */
 function SortableWorkspaceTab({
@@ -136,11 +133,13 @@ function SortableWorkspaceTab({
       style={{ transform: CSS.Translate.toString(transform), transition }}
       title={title}
       onClick={onOpen}
-      onAuxClick={(event) => {
-        if (event.button !== 1) return;
-        event.preventDefault();
-        onMiddleClick();
-      }}
+      onMouseDown={(event) =>
+        handleArkadiaWorkspaceTabMouseDown({
+          button: event.button,
+          preventDefault: () => event.preventDefault(),
+          closeTab: onMiddleClick,
+        })
+      }
       {...listeners}
     >
       {children}
@@ -157,88 +156,121 @@ export default function ArkadiaWorkspaceTabs({
   keepVisibleThreadId = null,
 }: ArkadiaWorkspaceTabsProps) {
   const threads = useThreadShells();
-  const nowMinute = useNowMinute();
-  const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
-  const leaveToNextActiveProject = useLeaveToNextActiveProject();
   const { settleThread } = useThreadActions();
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
     reportFailure: false,
   });
-  const closedTabKeyList = useUiStateStore((store) => store.closedWorkspaceTabKeys);
-  const closeWorkspaceTab = useUiStateStore((store) => store.closeWorkspaceTab);
-  const reopenWorkspaceTab = useUiStateStore((store) => store.reopenWorkspaceTab);
-  const closedTabKeys = useMemo(() => new Set(closedTabKeyList), [closedTabKeyList]);
+  const openWorkspaceThreadTabKeys = useUiStateStore((store) => store.openWorkspaceThreadTabKeys);
+  const closeWorkspaceThreadTab = useUiStateStore((store) => store.closeWorkspaceThreadTab);
+  const openWorkspaceThreadTab = useUiStateStore((store) => store.openWorkspaceThreadTab);
+  const openThreadTabKeys = useMemo(
+    () => new Set(openWorkspaceThreadTabKeys),
+    [openWorkspaceThreadTabKeys],
+  );
   const projectRef = useMemo(
     () => scopeProjectRef(environmentId, projectId),
     [environmentId, projectId],
   );
-  const visibleDraftId = useComposerDraftStore((store) =>
-    resolveArkadiaDraftTabId(
-      store.draftThreadsByThreadKey,
-      projectRef.environmentId,
-      projectRef.projectId,
-    ),
+  const openEmptyProject = useCallback(
+    (replace = false) =>
+      router.navigate({
+        to: "/$environmentId/project/$projectId",
+        params: { environmentId, projectId },
+        replace,
+      }),
+    [environmentId, projectId, router],
   );
-  const draftSession = useComposerDraftStore((store) =>
-    visibleDraftId ? store.getDraftSession(DraftId.make(visibleDraftId)) : null,
-  );
-  const visibleDraft = useMemo(
+  const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
+  const visibleDrafts = useMemo(
     () =>
-      visibleDraftId && draftSession
-        ? { draftId: DraftId.make(visibleDraftId), ...draftSession }
-        : null,
-    [draftSession, visibleDraftId],
+      Object.entries(draftThreadsByThreadKey).flatMap(([draftId, draftSession]) =>
+        draftSession.environmentId === environmentId &&
+        draftSession.projectId === projectId &&
+        draftSession.promotedTo == null
+          ? [{ draftId: DraftId.make(draftId), ...draftSession }]
+          : [],
+      ),
+    [draftThreadsByThreadKey, environmentId, projectId],
   );
-  const tabs = useMemo(
+  const projectTerminals = useProjectTerminalsStore((store) =>
+    selectProjectTerminals(store.terminalsByProjectKey, scopedProjectKey(projectRef)),
+  );
+  const openProjectTerminal = useProjectTerminalsStore((store) => store.openTerminal);
+  const closeProjectTerminal = useCloseProjectTerminal(projectRef);
+  const projectKey = scopedProjectKey(projectRef);
+  const tabOrder = useWorkspaceTabOrderStore((store) => store.orderByProjectKey[projectKey]);
+  const setTabOrder = useWorkspaceTabOrderStore((store) => store.setOrder);
+  const markTabActive = useWorkspaceTabOrderStore((store) => store.markTabActive);
+  const orderedTabItems = useMemo<ReadonlyArray<ArkadiaWorkspaceTabItem>>(
     () =>
-      buildArkadiaWorkspaceTabs({
+      buildArkadiaWorkspaceTabItems({
         threads,
         environmentId,
         projectId,
         currentThreadId: activeThreadId ?? keepVisibleThreadId,
-        closedTabKeys,
-        now: `${nowMinute}:00.000Z`,
-        autoSettleAfterDays,
+        openThreadTabKeys,
+        drafts: draftThreadsByThreadKey,
+        terminals: projectTerminals,
+        ...(tabOrder ? { preferredIds: tabOrder } : {}),
       }),
     [
       activeThreadId,
-      autoSettleAfterDays,
-      keepVisibleThreadId,
-      closedTabKeys,
+      draftThreadsByThreadKey,
       environmentId,
-      nowMinute,
+      keepVisibleThreadId,
+      openThreadTabKeys,
       projectId,
+      projectTerminals,
+      tabOrder,
       threads,
     ],
   );
+  const tabs = useMemo(
+    () => orderedTabItems.flatMap((item) => (item.kind === "thread" ? [item.thread] : [])),
+    [orderedTabItems],
+  );
 
-  // Opening a closed conversation again (from the sidebar, a link, anywhere)
-  // brings its tab back for good. Keyed on the active conversation alone so
-  // closing the tab you are on does not immediately undo itself.
+  useEffect(() => {
+    const activeKey = activeThreadId
+      ? arkadiaWorkspaceTabKey(environmentId, activeThreadId)
+      : activeDraftId
+        ? `draft:${activeDraftId}`
+        : activeTerminalId
+          ? `terminal:${activeTerminalId}`
+          : null;
+    if (activeKey) markTabActive(projectKey, activeKey);
+  }, [activeDraftId, activeTerminalId, activeThreadId, environmentId, markTabActive, projectKey]);
+
+  // Any conversation reached through routing becomes an explicit local tab.
+  // Keyed on the active conversation alone so closing the current tab does not
+  // immediately undo itself before fallback navigation starts.
   useEffect(() => {
     if (activeThreadId === null) return;
-    reopenWorkspaceTab(arkadiaWorkspaceTabKey(environmentId, activeThreadId));
-  }, [activeThreadId, environmentId, reopenWorkspaceTab]);
+    openWorkspaceThreadTab(arkadiaWorkspaceTabKey(environmentId, activeThreadId));
+  }, [activeThreadId, environmentId, openWorkspaceThreadTab]);
 
   const openThread = useCallback(
     (thread: EnvironmentThreadShell) => {
+      openWorkspaceThreadTab(arkadiaWorkspaceTabKey(thread.environmentId, thread.id));
       void router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
       });
     },
-    [router],
+    [openWorkspaceThreadTab, router],
   );
 
-  const openDraft = useCallback(() => {
-    if (!visibleDraft) return;
-    void router.navigate({
-      to: "/draft/$draftId",
-      params: { draftId: visibleDraft.draftId },
-    });
-  }, [router, visibleDraft]);
+  const openDraft = useCallback(
+    (draft: VisibleDraft) => {
+      void router.navigate({
+        to: "/draft/$draftId",
+        params: { draftId: draft.draftId },
+      });
+    },
+    [router],
+  );
 
   const clearDraftThread = useComposerDraftStore((store) => store.clearDraftThread);
 
@@ -247,39 +279,43 @@ export default function ArkadiaWorkspaceTabs({
   // When the draft is on screen, navigate away first — clearing while its
   // route is mounted would trigger that route's own "draft is gone" redirect
   // to the home page and race the navigation to the fallback tab.
-  const closeDraft = useCallback(() => {
-    if (!visibleDraft) return;
-    if (activeDraftId !== visibleDraft.draftId) {
-      clearDraftThread(visibleDraft.draftId);
-      return;
-    }
-    const fallback = tabs[tabs.length - 1];
-    void (
-      fallback
-        ? router.navigate({
-            to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(scopeThreadRef(fallback.environmentId, fallback.id)),
-          })
-        : leaveToNextActiveProject(scopedProjectKey(projectRef))
-    ).then(() => clearDraftThread(visibleDraft.draftId));
-  }, [
-    activeDraftId,
-    clearDraftThread,
-    leaveToNextActiveProject,
-    projectRef,
-    router,
-    tabs,
-    visibleDraft,
-  ]);
+  const closeDraft = useCallback(
+    (draft: VisibleDraft) => {
+      if (activeDraftId !== draft.draftId) {
+        clearDraftThread(draft.draftId);
+        return;
+      }
+      const fallbackDraft = visibleDrafts.find((candidate) => candidate.draftId !== draft.draftId);
+      const fallback = tabs[tabs.length - 1];
+      void closeArkadiaDraftTab({
+        navigateAway: () =>
+          fallbackDraft
+            ? router.navigate({
+                to: "/draft/$draftId",
+                params: { draftId: fallbackDraft.draftId },
+              })
+            : fallback
+              ? router.navigate({
+                  to: "/$environmentId/$threadId",
+                  params: buildThreadRouteParams(
+                    scopeThreadRef(fallback.environmentId, fallback.id),
+                  ),
+                })
+              : openEmptyProject(true),
+        clearDraft: () => clearDraftThread(draft.draftId),
+      });
+    },
+    [activeDraftId, clearDraftThread, openEmptyProject, projectRef, router, tabs, visibleDrafts],
+  );
 
   // Closing a tab always closes it, whatever the agent is doing: the tab
   // disappears from this window immediately, the running agent is stopped, and
   // the conversation itself is only settled (never archived or deleted), so it
-  // stays one click away in the sidebar.
+  // remains available from Sessions récentes.
   const closeThread = useCallback(
     async (thread: EnvironmentThreadShell) => {
       const threadRef = scopeThreadRef(thread.environmentId, thread.id);
-      closeWorkspaceTab(arkadiaWorkspaceTabKey(thread.environmentId, thread.id));
+      closeWorkspaceThreadTab(arkadiaWorkspaceTabKey(thread.environmentId, thread.id));
 
       // Stopping and settling run alongside the navigation: the tab is already
       // gone from the bar, and neither command needs this component alive.
@@ -290,9 +326,8 @@ export default function ArkadiaWorkspaceTabs({
             input: { threadId: threadRef.threadId },
           });
         }
-        // Best effort: the server refuses to settle a thread that is still live
-        // or blocked on an answer. The pending-settle effect picks it up again
-        // once the shell reports the thread as quiet.
+        // Best effort: the server may refuse to settle a thread that remains
+        // live or blocked on an answer after the stop request.
         await settleThread(threadRef);
       })();
 
@@ -307,34 +342,26 @@ export default function ArkadiaWorkspaceTabs({
         openThread(fallback);
         return;
       }
-      if (visibleDraft) {
-        openDraft();
+      const fallbackDraft = visibleDrafts[visibleDrafts.length - 1];
+      if (fallbackDraft) {
+        openDraft(fallbackDraft);
         return;
       }
-      // Nothing left in this project: let it fall to Inactive and move on to
-      // the next active project (or the empty home page), instead of spawning
-      // a fresh conversation here.
-      await leaveToNextActiveProject(scopedProjectKey(projectRef));
+      await openEmptyProject(true);
     },
     [
       activeThreadId,
-      closeWorkspaceTab,
-      leaveToNextActiveProject,
+      closeWorkspaceThreadTab,
+      openEmptyProject,
       openDraft,
       openThread,
       projectRef,
       settleThread,
       stopThreadSession,
       tabs,
-      visibleDraft,
+      visibleDrafts,
     ],
   );
-
-  const projectTerminals = useProjectTerminalsStore((store) =>
-    selectProjectTerminals(store.terminalsByProjectKey, scopedProjectKey(projectRef)),
-  );
-  const openProjectTerminal = useProjectTerminalsStore((store) => store.openTerminal);
-  const closeProjectTerminal = useCloseProjectTerminal(projectRef);
 
   const openTerminalTab = useCallback(
     (terminalId: string) => {
@@ -365,60 +392,25 @@ export default function ArkadiaWorkspaceTabs({
         openThread(fallbackThread);
         return;
       }
-      if (visibleDraft) {
-        openDraft();
+      const fallbackDraft = visibleDrafts[visibleDrafts.length - 1];
+      if (fallbackDraft) {
+        openDraft(fallbackDraft);
         return;
       }
-      void leaveToNextActiveProject(scopedProjectKey(projectRef));
+      void openEmptyProject(true);
     },
     [
       activeTerminalId,
       closeProjectTerminal,
-      leaveToNextActiveProject,
+      openEmptyProject,
       openDraft,
       openTerminalTab,
       openThread,
       projectRef,
       projectTerminals,
       tabs,
-      visibleDraft,
+      visibleDrafts,
     ],
-  );
-
-  // The bar's natural order: conversations by creation date, then the draft,
-  // then the project terminals. This is what the user reorders on top of.
-  const naturalTabItems = useMemo<ReadonlyArray<WorkspaceTabItem>>(() => {
-    const items: WorkspaceTabItem[] = tabs.map((thread) => ({
-      kind: "thread",
-      key: arkadiaWorkspaceTabKey(thread.environmentId, thread.id),
-      thread,
-    }));
-    if (visibleDraft) {
-      items.push({ kind: "draft", key: `draft:${visibleDraft.draftId}` });
-    }
-    for (const terminal of projectTerminals) {
-      items.push({
-        kind: "terminal",
-        key: `terminal:${terminal.terminalId}`,
-        terminalId: terminal.terminalId,
-      });
-    }
-    return items;
-  }, [projectTerminals, tabs, visibleDraft]);
-
-  // Manual drag order, session-local and per project. New tabs the user has not
-  // touched fall in at their natural position; closed ones drop out silently.
-  const projectKey = scopedProjectKey(projectRef);
-  const tabOrder = useWorkspaceTabOrderStore((store) => store.orderByProjectKey[projectKey]);
-  const setTabOrder = useWorkspaceTabOrderStore((store) => store.setOrder);
-  const orderedTabItems = useMemo(
-    () =>
-      orderItemsByPreferredIds({
-        items: naturalTabItems,
-        preferredIds: tabOrder ?? [],
-        getId: (item) => item.key,
-      }),
-    [naturalTabItems, tabOrder],
   );
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -448,36 +440,6 @@ export default function ArkadiaWorkspaceTabs({
     },
     [orderedTabItems, projectKey, setTabOrder],
   );
-
-  // A closed tab whose conversation is still classified active would resurface
-  // in the sidebar's Active list. Settle it as soon as the shell says it is
-  // quiet — driven by shell updates, never by a timer.
-  const settlingTabKeysRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const now = `${nowMinute}:00.000Z`;
-    for (const thread of threads) {
-      if (thread.environmentId !== environmentId || thread.archivedAt !== null) continue;
-      if (thread.id === activeThreadId) continue;
-      const tabKey = arkadiaWorkspaceTabKey(thread.environmentId, thread.id);
-      if (!closedTabKeys.has(tabKey)) continue;
-      if (settlingTabKeysRef.current.has(tabKey)) continue;
-      if (effectiveSettled(thread, { now, autoSettleAfterDays })) continue;
-      if (!canSettle(thread, { now })) continue;
-
-      settlingTabKeysRef.current.add(tabKey);
-      void settleThread(scopeThreadRef(thread.environmentId, thread.id)).finally(() => {
-        settlingTabKeysRef.current.delete(tabKey);
-      });
-    }
-  }, [
-    activeThreadId,
-    autoSettleAfterDays,
-    closedTabKeys,
-    environmentId,
-    nowMinute,
-    settleThread,
-    threads,
-  ]);
 
   return (
     <div
@@ -537,16 +499,19 @@ export default function ArkadiaWorkspaceTabs({
               }
 
               if (item.kind === "draft") {
-                if (!visibleDraft) return null;
-                const active = activeDraftId === visibleDraft.draftId;
+                const draft = visibleDrafts.find(
+                  (candidate) => String(candidate.draftId) === item.draftId,
+                );
+                if (!draft) return null;
+                const active = activeDraftId === draft.draftId;
                 return (
                   <SortableWorkspaceTab
                     key={item.key}
                     id={item.key}
                     active={active}
                     title="Nouvelle conversation"
-                    onOpen={openDraft}
-                    onMiddleClick={closeDraft}
+                    onOpen={() => openDraft(draft)}
+                    onMiddleClick={() => closeDraft(draft)}
                   >
                     <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
                     <span className="min-w-0 flex-1 truncate font-medium">
@@ -558,7 +523,7 @@ export default function ArkadiaWorkspaceTabs({
                       className={workspaceTabCloseClassName(active)}
                       onClick={(event) => {
                         event.stopPropagation();
-                        closeDraft();
+                        closeDraft(draft);
                       }}
                     >
                       <X size={12} strokeWidth={2} />
@@ -597,18 +562,12 @@ export default function ArkadiaWorkspaceTabs({
           </SortableContext>
         </DndContext>
 
-        {/* Never disabled: a project keeps a single pending draft, so the plus
-            either opens a brand new conversation or jumps to the one already
-            waiting — it always lands the user on an agent view. */}
+        {/* Never disabled: each click opens a separate pending conversation tab. */}
         <button
           type="button"
           className="flex w-9 shrink-0 items-center justify-center text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
           onClick={() => {
-            if (visibleDraft) {
-              openDraft();
-              return;
-            }
-            void handleNewThread(projectRef);
+            void handleNewThread(projectRef, { forceNew: true });
           }}
           title="Nouvel onglet"
           aria-label="Nouvel onglet"

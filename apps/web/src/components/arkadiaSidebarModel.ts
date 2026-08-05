@@ -2,8 +2,6 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
-import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
-
 import { getProjectOrderKey } from "../logicalProject";
 import { orderItemsByPreferredIds } from "./Sidebar.logic";
 
@@ -18,9 +16,34 @@ const ARKADIA_PROJECT_COLORS = [
   "#a8a8a8",
 ] as const;
 
+export interface ArkadiaDraftTabSource {
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly createdAt: string;
+  readonly promotedTo?: unknown | null;
+}
+
+export type ArkadiaWorkspaceTabItem =
+  | {
+      readonly kind: "thread";
+      readonly key: string;
+      readonly thread: EnvironmentThreadShell;
+    }
+  | {
+      readonly kind: "draft";
+      readonly key: string;
+      readonly draftId: string;
+      readonly createdAt: string;
+    }
+  | {
+      readonly kind: "terminal";
+      readonly key: string;
+      readonly terminalId: string;
+    };
+
 export interface ArkadiaSidebarProjectGroup {
   readonly project: EnvironmentProject;
-  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly tabs: ReadonlyArray<ArkadiaWorkspaceTabItem>;
   readonly color: string;
 }
 
@@ -29,43 +52,86 @@ export interface ArkadiaSidebarGroups {
   readonly inactive: ReadonlyArray<ArkadiaSidebarProjectGroup>;
 }
 
-export function resolveArkadiaDraftTabId(
+export function handleArkadiaWorkspaceTabMouseDown(input: {
+  readonly button: number;
+  readonly preventDefault: () => void;
+  readonly closeTab: () => void;
+}): boolean {
+  if (input.button !== 1) return false;
+  input.preventDefault();
+  input.closeTab();
+  return true;
+}
+
+export async function requestArkadiaInactiveProjectDeletion(input: {
+  readonly position: { readonly x: number; readonly y: number };
+  readonly showContextMenu: (
+    items: readonly [{ readonly id: "delete"; readonly label: "Supprimer" }],
+    position: { readonly x: number; readonly y: number },
+  ) => Promise<"delete" | null>;
+  readonly deleteProject: () => Promise<void>;
+}): Promise<boolean> {
+  const action = await input.showContextMenu(
+    [{ id: "delete", label: "Supprimer" }],
+    input.position,
+  );
+  if (action !== "delete") return false;
+  await input.deleteProject();
+  return true;
+}
+
+/**
+ * Starts the fallback navigation, then removes the draft synchronously. The
+ * router promise can remain pending while loaders settle; tab closure must not
+ * depend on that promise resolving.
+ */
+export function closeArkadiaDraftTab(input: {
+  readonly navigateAway: () => Promise<void>;
+  readonly clearDraft: () => void;
+}): Promise<void> {
+  try {
+    return input.navigateAway();
+  } finally {
+    input.clearDraft();
+  }
+}
+
+export function resolveArkadiaDraftTabIds(
   drafts: Readonly<
     Record<
       string,
       {
         readonly environmentId: string;
         readonly projectId: string;
+        readonly createdAt: string;
         readonly promotedTo?: unknown | null;
       }
     >
   >,
   environmentId: string,
   projectId: string,
+): string[] {
+  return Object.entries(drafts)
+    .filter(
+      ([, draft]) =>
+        draft.environmentId === environmentId &&
+        draft.projectId === projectId &&
+        draft.promotedTo == null,
+    )
+    .sort(([, left], [, right]) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+    .map(([draftId]) => draftId);
+}
+
+export function resolveArkadiaDraftTabId(
+  drafts: Parameters<typeof resolveArkadiaDraftTabIds>[0],
+  environmentId: string,
+  projectId: string,
 ): string | null {
-  for (const [draftId, draft] of Object.entries(drafts)) {
-    if (
-      draft.environmentId === environmentId &&
-      draft.projectId === projectId &&
-      draft.promotedTo == null
-    ) {
-      return draftId;
-    }
-  }
-  return null;
+  return resolveArkadiaDraftTabIds(drafts, environmentId, projectId)[0] ?? null;
 }
 
 export function resolveArkadiaInactiveProjectOpenTarget(
-  drafts: Readonly<
-    Record<
-      string,
-      {
-        readonly environmentId: string;
-        readonly projectId: string;
-        readonly promotedTo?: unknown | null;
-      }
-    >
-  >,
+  drafts: Parameters<typeof resolveArkadiaDraftTabIds>[0],
   environmentId: string,
   projectId: string,
 ): { readonly kind: "draft"; readonly draftId: string } | { readonly kind: "new-draft" } {
@@ -80,9 +146,16 @@ export function prependArkadiaWorkspaceTabKey(
   return [newKey, ...existingKeys.filter((key) => key !== newKey)];
 }
 
-/** Stable identity of a tab across environments, used by the closed-tab store. */
+/** Stable identity of a conversation tab across environments. */
 export function arkadiaWorkspaceTabKey(environmentId: string, threadId: string): string {
   return `${environmentId}:${threadId}`;
+}
+
+export function resolveArkadiaProjectOpenTab(
+  tabs: ReadonlyArray<ArkadiaWorkspaceTabItem>,
+  lastActiveKey: string | null | undefined,
+): ArkadiaWorkspaceTabItem | null {
+  return tabs.find((tab) => tab.key === lastActiveKey) ?? tabs[0] ?? null;
 }
 
 export function buildArkadiaWorkspaceTabs(input: {
@@ -90,14 +163,7 @@ export function buildArkadiaWorkspaceTabs(input: {
   readonly environmentId: string;
   readonly projectId: string;
   readonly currentThreadId: string | null;
-  /**
-   * Tabs the user closed with the cross. Closing is a window-local gesture, so
-   * it hides the tab even when the conversation stays active server-side —
-   * except for the conversation currently on screen, which must stay reachable.
-   */
-  readonly closedTabKeys: ReadonlySet<string>;
-  readonly now: string;
-  readonly autoSettleAfterDays: number | null;
+  readonly openTabKeys: ReadonlySet<string>;
 }): ReadonlyArray<EnvironmentThreadShell> {
   return input.threads
     .filter((thread) => {
@@ -105,15 +171,60 @@ export function buildArkadiaWorkspaceTabs(input: {
       if (thread.projectId !== input.projectId) return false;
       if (thread.archivedAt !== null) return false;
       if (thread.id === input.currentThreadId) return true;
-      if (input.closedTabKeys.has(arkadiaWorkspaceTabKey(thread.environmentId, thread.id))) {
-        return false;
-      }
-      return !effectiveSettled(thread, {
-        now: input.now,
-        autoSettleAfterDays: input.autoSettleAfterDays,
-      });
+      const tabKey = arkadiaWorkspaceTabKey(thread.environmentId, thread.id);
+      return input.openTabKeys.has(tabKey);
     })
     .toSorted((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+}
+
+export function buildArkadiaWorkspaceTabItems(input: {
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly currentThreadId?: string | null;
+  readonly openThreadTabKeys: ReadonlySet<string>;
+  readonly drafts: Readonly<Record<string, ArkadiaDraftTabSource>>;
+  readonly terminals: ReadonlyArray<{ readonly terminalId: string }>;
+  readonly preferredIds?: readonly string[];
+}): ReadonlyArray<ArkadiaWorkspaceTabItem> {
+  const items: ArkadiaWorkspaceTabItem[] = buildArkadiaWorkspaceTabs({
+    threads: input.threads,
+    environmentId: input.environmentId,
+    projectId: input.projectId,
+    currentThreadId: input.currentThreadId ?? null,
+    openTabKeys: input.openThreadTabKeys,
+  }).map((thread) => ({
+    kind: "thread",
+    key: arkadiaWorkspaceTabKey(thread.environmentId, thread.id),
+    thread,
+  }));
+
+  for (const [draftId, draft] of Object.entries(input.drafts)
+    .filter(
+      ([, draft]) =>
+        draft.environmentId === input.environmentId &&
+        draft.projectId === input.projectId &&
+        draft.promotedTo == null,
+    )
+    .toSorted(([, left], [, right]) => Date.parse(left.createdAt) - Date.parse(right.createdAt))) {
+    items.push({ kind: "draft", key: `draft:${draftId}`, draftId, createdAt: draft.createdAt });
+  }
+
+  for (const terminal of input.terminals) {
+    items.push({
+      kind: "terminal",
+      key: `terminal:${terminal.terminalId}`,
+      terminalId: terminal.terminalId,
+    });
+  }
+
+  return input.preferredIds && input.preferredIds.length > 0
+    ? orderItemsByPreferredIds({
+        items,
+        preferredIds: input.preferredIds,
+        getId: (item) => item.key,
+      })
+    : items;
 }
 
 /**
@@ -170,16 +281,9 @@ export function resolveArkadiaNextActiveProject(
 ): ArkadiaSidebarProjectGroup | null {
   return (
     activeGroups.find(
-      (group) => projectKey(group.project) !== excludeProjectKey && group.threads.length > 0,
+      (group) => projectKey(group.project) !== excludeProjectKey && group.tabs.length > 0,
     ) ?? null
   );
-}
-
-export type ArkadiaActiveProjectLayout = "empty" | "solo" | "tabs";
-
-export function resolveArkadiaActiveProjectLayout(threadCount: number): ArkadiaActiveProjectLayout {
-  if (threadCount <= 0) return "empty";
-  return threadCount === 1 ? "solo" : "tabs";
 }
 
 export interface ArkadiaThreadIndicator {
@@ -237,10 +341,6 @@ function projectKey(project: EnvironmentProject): string {
   return `${project.environmentId}:${project.id}`;
 }
 
-function threadProjectKey(thread: EnvironmentThreadShell): string {
-  return `${thread.environmentId}:${thread.projectId}`;
-}
-
 function compareProjects(
   left: ArkadiaSidebarProjectGroup,
   right: ArkadiaSidebarProjectGroup,
@@ -251,18 +351,14 @@ function compareProjects(
   });
 }
 
-// Creation order, oldest first: the sidebar mirrors the tab bar, so a new
-// conversation lands at the bottom of its project instead of jumping to the top
-// every time the agent touches an older one.
-function compareThreads(left: EnvironmentThreadShell, right: EnvironmentThreadShell): number {
-  return Date.parse(left.createdAt) - Date.parse(right.createdAt);
-}
-
 export function buildArkadiaSidebarGroups(input: {
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
-  readonly now: string;
-  readonly autoSettleAfterDays: number | null;
+  readonly openThreadTabKeys: ReadonlySet<string>;
+  readonly drafts: Readonly<Record<string, ArkadiaDraftTabSource>>;
+  readonly terminalsByProjectKey: Readonly<
+    Record<string, ReadonlyArray<{ readonly terminalId: string }>>
+  >;
   /**
    * Manual project order, as physical project keys (see `getProjectOrderKey`).
    * Shared with the legacy sidebar's persisted `projectOrder`. Projects listed
@@ -271,59 +367,50 @@ export function buildArkadiaSidebarGroups(input: {
    */
   readonly projectOrder?: readonly string[];
   /**
-   * Manual thread order per project (`scopedProjectKey` → ordered tab keys),
-   * shared with the workspace tab bar so dragging a tab reorders its sibling
-   * conversation in the sidebar too. Keys that match no thread here — the draft
-   * or a terminal — are simply ignored, keeping the threads' relative order.
+   * Manual mixed-tab order per project (`scopedProjectKey` → ordered tab keys),
+   * shared with the workspace tab bar so the sidebar mirrors conversations,
+   * drafts, and terminals in exactly the same order.
    */
   readonly tabOrderByProjectKey?: Readonly<Record<string, readonly string[]>>;
 }): ArkadiaSidebarGroups {
-  const visibleThreads = input.threads.filter((thread) => thread.archivedAt === null);
-  const activeThreadsByProject = new Map<string, EnvironmentThreadShell[]>();
-  const inactiveThreadsByProject = new Map<string, EnvironmentThreadShell[]>();
+  const threadsByProjectKey = new Map<string, EnvironmentThreadShell[]>();
+  for (const thread of input.threads) {
+    const key = `${thread.environmentId}:${thread.projectId}`;
+    const existing = threadsByProjectKey.get(key);
+    if (existing) existing.push(thread);
+    else threadsByProjectKey.set(key, [thread]);
+  }
 
-  for (const thread of visibleThreads) {
-    const target = effectiveSettled(thread, {
-      now: input.now,
-      autoSettleAfterDays: input.autoSettleAfterDays,
-    })
-      ? inactiveThreadsByProject
-      : activeThreadsByProject;
-    const key = threadProjectKey(thread);
-    const existing = target.get(key);
-    if (existing) {
-      existing.push(thread);
-    } else {
-      target.set(key, [thread]);
-    }
+  const draftsByProjectKey = new Map<string, Record<string, ArkadiaDraftTabSource>>();
+  for (const [draftId, draft] of Object.entries(input.drafts)) {
+    const key = `${draft.environmentId}:${draft.projectId}`;
+    const existing = draftsByProjectKey.get(key);
+    if (existing) existing[draftId] = draft;
+    else draftsByProjectKey.set(key, { [draftId]: draft });
   }
 
   const active: ArkadiaSidebarProjectGroup[] = [];
   const inactive: ArkadiaSidebarProjectGroup[] = [];
   for (const project of input.projects) {
     const key = projectKey(project);
-    const projectActiveThreads = activeThreadsByProject.get(key) ?? [];
-    const projectInactiveThreads = inactiveThreadsByProject.get(key) ?? [];
-    const baseThreads = (
-      projectActiveThreads.length > 0 ? projectActiveThreads : projectInactiveThreads
-    )
-      .slice()
-      .sort(compareThreads);
-    const manualThreadOrder = input.tabOrderByProjectKey?.[key];
+    const tabs = buildArkadiaWorkspaceTabItems({
+      threads: threadsByProjectKey.get(key) ?? [],
+      environmentId: project.environmentId,
+      projectId: project.id,
+      openThreadTabKeys: input.openThreadTabKeys,
+      drafts: draftsByProjectKey.get(key) ?? {},
+      terminals: input.terminalsByProjectKey[key] ?? [],
+      ...(input.tabOrderByProjectKey?.[key]
+        ? { preferredIds: input.tabOrderByProjectKey[key] }
+        : {}),
+    });
     const group = {
       project,
-      threads:
-        manualThreadOrder && manualThreadOrder.length > 0
-          ? orderItemsByPreferredIds({
-              items: baseThreads,
-              preferredIds: manualThreadOrder,
-              getId: (thread) => arkadiaWorkspaceTabKey(thread.environmentId, thread.id),
-            })
-          : baseThreads,
+      tabs,
       color: arkadiaProjectColor(project.workspaceRoot),
     } satisfies ArkadiaSidebarProjectGroup;
 
-    if (projectActiveThreads.length > 0) {
+    if (tabs.length > 0) {
       active.push(group);
     } else {
       inactive.push(group);

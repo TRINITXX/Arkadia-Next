@@ -2,20 +2,23 @@ import type {
   EnvironmentProject,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/models";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   arkadiaProjectColor,
+  arkadiaWorkspaceTabKey,
+  handleArkadiaWorkspaceTabMouseDown,
+  closeArkadiaDraftTab,
   buildArkadiaSidebarGroups,
-  resolveArkadiaActiveProjectLayout,
+  resolveArkadiaDraftTabIds,
   resolveArkadiaNextActiveProject,
   resolveArkadiaInactiveProjectOpenTarget,
+  resolveArkadiaProjectOpenTab,
+  requestArkadiaInactiveProjectDeletion,
   resolveArkadiaThreadIndicator,
   shortenArkadiaProjectPath,
 } from "./arkadiaSidebarModel";
 import * as arkadiaSidebarModel from "./arkadiaSidebarModel";
-
-const NOW = "2026-08-03T10:00:00.000Z";
 
 function project(id: string, title = id): EnvironmentProject {
   return {
@@ -79,37 +82,114 @@ function thread(
   } as unknown as EnvironmentThreadShell;
 }
 
+function sidebarGroups(input: {
+  projects: ReadonlyArray<EnvironmentProject>;
+  threads: ReadonlyArray<EnvironmentThreadShell>;
+  openThreadIds?: readonly string[];
+  drafts?: Parameters<typeof buildArkadiaSidebarGroups>[0]["drafts"];
+  terminalsByProjectKey?: Parameters<typeof buildArkadiaSidebarGroups>[0]["terminalsByProjectKey"];
+  tabOrderByProjectKey?: Readonly<Record<string, readonly string[]>>;
+}) {
+  return buildArkadiaSidebarGroups({
+    projects: input.projects,
+    threads: input.threads,
+    openThreadTabKeys: new Set(
+      (input.openThreadIds ?? input.threads.map((item) => item.id)).map((threadId) =>
+        arkadiaWorkspaceTabKey("local", threadId),
+      ),
+    ),
+    drafts: input.drafts ?? {},
+    terminalsByProjectKey: input.terminalsByProjectKey ?? {},
+    ...(input.tabOrderByProjectKey ? { tabOrderByProjectKey: input.tabOrderByProjectKey } : {}),
+  });
+}
+
 describe("buildArkadiaSidebarGroups", () => {
-  it("places projects with live threads in Active and the others in Inactive", () => {
+  it("builds one ordered mixed-tab collection for the bar and sidebar", () => {
     const groups = buildArkadiaSidebarGroups({
       projects: [project("alpha", "Alpha"), project("beta", "Beta")],
-      threads: [thread("active-thread", "alpha")],
-      now: NOW,
-      autoSettleAfterDays: 3,
+      threads: [thread("thread-1", "alpha"), thread("remote-active", "alpha")],
+      openThreadTabKeys: new Set([arkadiaWorkspaceTabKey("local", "thread-1")]),
+      drafts: {
+        "draft-1": {
+          environmentId: "local",
+          projectId: "alpha",
+          createdAt: "2026-08-05T10:00:00.000Z",
+          promotedTo: null,
+        },
+      },
+      terminalsByProjectKey: {
+        "local:alpha": [{ terminalId: "term-1" }],
+      },
+      tabOrderByProjectKey: {
+        "local:alpha": ["terminal:term-1", "draft:draft-1", "local:thread-1"],
+      },
     });
 
-    expect(groups.active.map((group) => group.project.id)).toEqual(["alpha"]);
-    expect(groups.active[0]?.threads.map((item) => item.id)).toEqual(["active-thread"]);
+    expect(groups.active[0]?.tabs.map((tab) => `${tab.kind}:${tab.key}`)).toEqual([
+      "terminal:terminal:term-1",
+      "draft:draft:draft-1",
+      "thread:local:thread-1",
+    ]);
     expect(groups.inactive.map((group) => group.project.id)).toEqual(["beta"]);
   });
 
-  it("treats settled-only projects as inactive and excludes archived threads", () => {
-    const groups = buildArkadiaSidebarGroups({
+  it("places projects with live threads in Active and the others in Inactive", () => {
+    const groups = sidebarGroups({
+      projects: [project("alpha", "Alpha"), project("beta", "Beta")],
+      threads: [thread("active-thread", "alpha")],
+    });
+
+    expect(groups.active.map((group) => group.project.id)).toEqual(["alpha"]);
+    expect(
+      groups.active[0]?.tabs.flatMap((item) => (item.kind === "thread" ? [item.thread.id] : [])),
+    ).toEqual(["active-thread"]);
+    expect(groups.inactive.map((group) => group.project.id)).toEqual(["beta"]);
+  });
+
+  it("keeps a project with a terminal tab in Active exactly once", () => {
+    const groups = sidebarGroups({
+      projects: [project("alpha", "Alpha"), project("beta", "Beta")],
+      threads: [thread("historical", "alpha", { settledOverride: "settled" })],
+      openThreadIds: [],
+      terminalsByProjectKey: { "local:alpha": [{ terminalId: "term-1" }] },
+    });
+
+    expect(groups.active.map((group) => group.project.id)).toEqual(["alpha"]);
+    expect(groups.inactive.map((group) => group.project.id)).toEqual(["beta"]);
+    expect(
+      [...groups.active, ...groups.inactive].filter((group) => group.project.id === "alpha"),
+    ).toHaveLength(1);
+  });
+
+  it("leaves a project without open tabs Inactive", () => {
+    const closed = thread("closed", "alpha");
+    const groups = sidebarGroups({
+      projects: [project("alpha", "Alpha"), project("beta", "Beta")],
+      threads: [closed],
+      openThreadIds: [],
+    });
+
+    expect(groups.active).toEqual([]);
+    expect(groups.inactive.map((group) => group.project.id)).toEqual(["alpha", "beta"]);
+  });
+
+  it("keeps closed and archived conversations out of the tab collection", () => {
+    const groups = sidebarGroups({
       projects: [project("alpha", "Alpha")],
       threads: [
         thread("settled", "alpha", { settledOverride: "settled" }),
         thread("archived", "alpha", { archivedAt: "2026-08-02T12:00:00.000Z" }),
       ],
-      now: NOW,
-      autoSettleAfterDays: 3,
+      openThreadIds: [],
     });
 
     expect(groups.active).toEqual([]);
-    expect(groups.inactive[0]?.threads.map((item) => item.id)).toEqual(["settled"]);
+    expect(groups.inactive[0]?.tabs).toEqual([]);
   });
 
   it("appends newer conversations below the existing ones, like the tab bar", () => {
-    const groups = buildArkadiaSidebarGroups({
+    const groups = sidebarGroups({
       projects: [project("alpha", "Alpha")],
       threads: [
         thread("newer", "alpha", {
@@ -121,22 +201,20 @@ describe("buildArkadiaSidebarGroups", () => {
           updatedAt: "2026-08-02T10:00:00.000Z",
         }),
       ],
-      now: NOW,
-      autoSettleAfterDays: 3,
     });
 
-    expect(groups.active[0]?.threads.map((item) => item.id)).toEqual(["older", "newer"]);
+    expect(
+      groups.active[0]?.tabs.flatMap((item) => (item.kind === "thread" ? [item.thread.id] : [])),
+    ).toEqual(["older", "newer"]);
   });
 
   it("mirrors the workspace tab order, ignoring non-thread keys", () => {
-    const groups = buildArkadiaSidebarGroups({
+    const groups = sidebarGroups({
       projects: [project("alpha", "Alpha")],
       threads: [
         thread("first", "alpha", { createdAt: "2026-08-01T09:00:00.000Z" }),
         thread("second", "alpha", { createdAt: "2026-08-02T09:00:00.000Z" }),
       ],
-      now: NOW,
-      autoSettleAfterDays: 3,
       // The bar dragged "second" ahead of "first"; the draft key in between is
       // not a thread and must not disturb the result.
       tabOrderByProjectKey: {
@@ -144,7 +222,9 @@ describe("buildArkadiaSidebarGroups", () => {
       },
     });
 
-    expect(groups.active[0]?.threads.map((item) => item.id)).toEqual(["second", "first"]);
+    expect(
+      groups.active[0]?.tabs.flatMap((item) => (item.kind === "thread" ? [item.thread.id] : [])),
+    ).toEqual(["second", "first"]);
   });
 });
 
@@ -152,7 +232,13 @@ describe("resolveArkadiaNextActiveProject", () => {
   const activeGroups = (
     projects: ReadonlyArray<EnvironmentProject>,
     threads: ReadonlyArray<EnvironmentThreadShell>,
-  ) => buildArkadiaSidebarGroups({ projects, threads, now: NOW, autoSettleAfterDays: 3 }).active;
+    openThreadIds?: readonly string[],
+  ) =>
+    sidebarGroups({
+      projects,
+      threads,
+      ...(openThreadIds ? { openThreadIds } : {}),
+    }).active;
 
   it("returns the first active project other than the one being emptied", () => {
     const groups = activeGroups(
@@ -173,17 +259,59 @@ describe("resolveArkadiaNextActiveProject", () => {
     const groups = activeGroups(
       [project("alpha", "Alpha")],
       [thread("settled", "alpha", { settledOverride: "settled" })],
+      [],
     );
 
     expect(resolveArkadiaNextActiveProject(groups, "local:beta")).toBeNull();
+  });
+
+  it("can fall back to a project whose only open tab is a terminal", () => {
+    const groups = sidebarGroups({
+      projects: [project("alpha"), project("beta")],
+      threads: [thread("a", "alpha")],
+      terminalsByProjectKey: { "local:beta": [{ terminalId: "term-1" }] },
+    }).active;
+
+    expect(resolveArkadiaNextActiveProject(groups, "local:alpha")?.project.id).toBe("beta");
+  });
+});
+
+describe("resolveArkadiaProjectOpenTab", () => {
+  it("opens the last active remaining tab and falls back to the first ordered tab", () => {
+    const tabs = buildArkadiaSidebarGroups({
+      projects: [project("alpha")],
+      threads: [thread("first", "alpha")],
+      openThreadTabKeys: new Set(["local:first"]),
+      drafts: {
+        second: {
+          environmentId: "local",
+          projectId: "alpha",
+          createdAt: "2026-08-05T10:00:00.000Z",
+        },
+      },
+      terminalsByProjectKey: {},
+    }).active[0]!.tabs;
+
+    expect(resolveArkadiaProjectOpenTab(tabs, "draft:second")?.key).toBe("draft:second");
+    expect(resolveArkadiaProjectOpenTab(tabs, "missing")?.key).toBe("local:first");
   });
 });
 
 describe("resolveArkadiaInactiveProjectOpenTarget", () => {
   it("opens the project's existing empty composer instead of a prior conversation", () => {
     const drafts = {
-      matching: { environmentId: "local", projectId: "alpha", promotedTo: null },
-      other: { environmentId: "local", projectId: "beta", promotedTo: null },
+      matching: {
+        environmentId: "local",
+        projectId: "alpha",
+        createdAt: "2026-08-05T10:00:00.000Z",
+        promotedTo: null,
+      },
+      other: {
+        environmentId: "local",
+        projectId: "beta",
+        createdAt: "2026-08-05T11:00:00.000Z",
+        promotedTo: null,
+      },
     };
 
     expect(resolveArkadiaInactiveProjectOpenTarget(drafts, "local", "alpha")).toEqual({
@@ -214,11 +342,6 @@ describe("Arkadia project presentation", () => {
     ).toMatchObject({ tone: "working", color: "#f59e0b", label: "Codex travaille" });
   });
 
-  it("merges a solo conversation and separates multiple conversations into tab rows", () => {
-    expect(resolveArkadiaActiveProjectLayout(1)).toBe("solo");
-    expect(resolveArkadiaActiveProjectLayout(2)).toBe("tabs");
-  });
-
   it("uses the exact compact path convention from Arkadia", () => {
     expect(shortenArkadiaProjectPath("C:\\Users\\TRINITX\\Desktop\\Arkadia")).toBe(
       "Desktop\\Arkadia",
@@ -233,6 +356,64 @@ describe("Arkadia project presentation", () => {
 });
 
 describe("Arkadia workspace tabs", () => {
+  it("closes every tab type on middle-button mouse down", () => {
+    const preventDefault = vi.fn();
+    const closeTab = vi.fn();
+
+    expect(
+      handleArkadiaWorkspaceTabMouseDown({
+        button: 1,
+        preventDefault,
+        closeTab,
+      }),
+    ).toBe(true);
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(closeTab).toHaveBeenCalledOnce();
+  });
+
+  it("closes an unstarted tab immediately without waiting for fallback navigation", () => {
+    const clearDraft = vi.fn();
+    const navigationThatNeverSettles = new Promise<void>(() => undefined);
+
+    void closeArkadiaDraftTab({
+      navigateAway: () => navigationThatNeverSettles,
+      clearDraft,
+    });
+
+    expect(clearDraft).toHaveBeenCalledOnce();
+  });
+
+  it("keeps every unstarted conversation as its own tab in creation order", () => {
+    const drafts = {
+      newest: {
+        environmentId: "local",
+        projectId: "alpha",
+        createdAt: "2026-08-03T10:00:00.000Z",
+        promotedTo: null,
+      },
+      oldest: {
+        environmentId: "local",
+        projectId: "alpha",
+        createdAt: "2026-08-01T10:00:00.000Z",
+        promotedTo: null,
+      },
+      promoted: {
+        environmentId: "local",
+        projectId: "alpha",
+        createdAt: "2026-08-02T10:00:00.000Z",
+        promotedTo: { environmentId: "local", threadId: "server-thread" },
+      },
+      otherProject: {
+        environmentId: "local",
+        projectId: "beta",
+        createdAt: "2026-07-31T10:00:00.000Z",
+        promotedTo: null,
+      },
+    };
+
+    expect(resolveArkadiaDraftTabIds(drafts, "local", "alpha")).toEqual(["oldest", "newest"]);
+  });
+
   it("selects a primitive draft id instead of rebuilding a store snapshot", () => {
     const resolveArkadiaDraftTabId = (
       arkadiaSidebarModel as typeof arkadiaSidebarModel & {
@@ -272,16 +453,14 @@ describe("Arkadia workspace tabs", () => {
           environmentId: string;
           projectId: string;
           currentThreadId: string | null;
-          closedTabKeys: ReadonlySet<string>;
-          now: string;
-          autoSettleAfterDays: number | null;
+          openTabKeys: ReadonlySet<string>;
         }) => ReadonlyArray<EnvironmentThreadShell>;
       }
     ).buildArkadiaWorkspaceTabs;
     expect(typeof buildArkadiaWorkspaceTabs).toBe("function");
 
     const tabs = buildArkadiaWorkspaceTabs({
-      closedTabKeys: new Set<string>(),
+      openTabKeys: new Set(["local:first", "local:second"]),
       threads: [
         thread("second", "alpha", {
           createdAt: "2026-08-02T09:00:00.000Z",
@@ -298,11 +477,21 @@ describe("Arkadia workspace tabs", () => {
       environmentId: "local",
       projectId: "alpha",
       currentThreadId: "first",
-      now: NOW,
-      autoSettleAfterDays: 3,
     });
 
     expect(tabs.map((item) => item.id)).toEqual(["first", "second"]);
+  });
+
+  it("does not open a local tab merely because a server conversation is active", () => {
+    const tabs = arkadiaSidebarModel.buildArkadiaWorkspaceTabs({
+      threads: [thread("local-open", "alpha"), thread("remote-active", "alpha")],
+      environmentId: "local",
+      projectId: "alpha",
+      currentThreadId: null,
+      openTabKeys: new Set([arkadiaSidebarModel.arkadiaWorkspaceTabKey("local", "local-open")]),
+    });
+
+    expect(tabs.map((item) => item.id)).toEqual(["local-open"]);
   });
 
   it("keeps the selected conversation visible while it is being settled", () => {
@@ -313,9 +502,7 @@ describe("Arkadia workspace tabs", () => {
           environmentId: string;
           projectId: string;
           currentThreadId: string | null;
-          closedTabKeys: ReadonlySet<string>;
-          now: string;
-          autoSettleAfterDays: number | null;
+          openTabKeys: ReadonlySet<string>;
         }) => ReadonlyArray<EnvironmentThreadShell>;
       }
     ).buildArkadiaWorkspaceTabs;
@@ -325,12 +512,22 @@ describe("Arkadia workspace tabs", () => {
       environmentId: "local",
       projectId: "alpha",
       currentThreadId: "selected",
-      closedTabKeys: new Set<string>(),
-      now: NOW,
-      autoSettleAfterDays: 3,
+      openTabKeys: new Set<string>(),
     });
 
     expect(tabs.map((item) => item.id)).toEqual(["selected"]);
+  });
+
+  it("keeps a resumed settled conversation after switching projects and returning", () => {
+    const tabs = arkadiaSidebarModel.buildArkadiaWorkspaceTabs({
+      threads: [thread("resumed", "alpha", { settledOverride: "settled" })],
+      environmentId: "local",
+      projectId: "alpha",
+      currentThreadId: null,
+      openTabKeys: new Set([arkadiaSidebarModel.arkadiaWorkspaceTabKey("local", "resumed")]),
+    });
+
+    expect(tabs.map((item) => item.id)).toEqual(["resumed"]);
   });
 
   it("hides conversations the user closed, unless one is the open conversation", () => {
@@ -341,9 +538,7 @@ describe("Arkadia workspace tabs", () => {
           environmentId: string;
           projectId: string;
           currentThreadId: string | null;
-          closedTabKeys: ReadonlySet<string>;
-          now: string;
-          autoSettleAfterDays: number | null;
+          openTabKeys: ReadonlySet<string>;
         }) => ReadonlyArray<EnvironmentThreadShell>;
       }
     ).buildArkadiaWorkspaceTabs;
@@ -363,12 +558,7 @@ describe("Arkadia workspace tabs", () => {
       environmentId: "local",
       projectId: "alpha",
       currentThreadId: "closed-but-open",
-      closedTabKeys: new Set([
-        arkadiaWorkspaceTabKey("local", "closed"),
-        arkadiaWorkspaceTabKey("local", "closed-but-open"),
-      ]),
-      now: NOW,
-      autoSettleAfterDays: 3,
+      openTabKeys: new Set([arkadiaWorkspaceTabKey("local", "kept")]),
     });
 
     expect(tabs.map((item) => item.id)).toEqual(["kept", "closed-but-open"]);
@@ -387,6 +577,37 @@ describe("Arkadia workspace tabs", () => {
     expect(resolveArkadiaTabAfterClose(["first", "current", "last"], "current")).toBe("last");
     expect(resolveArkadiaTabAfterClose(["first", "last"], "last")).toBe("first");
     expect(resolveArkadiaTabAfterClose(["only"], "only")).toBeNull();
+  });
+});
+
+describe("Arkadia inactive projects", () => {
+  it("promotes a resumed settled conversation and its project back to Active", () => {
+    const result = sidebarGroups({
+      projects: [project("alpha", "Alpha")],
+      threads: [thread("resumed", "alpha", { settledOverride: "settled" })],
+      openThreadIds: ["resumed"],
+    });
+
+    expect(result.active.map((group) => group.project.id)).toEqual(["alpha"]);
+    expect(result.inactive).toEqual([]);
+  });
+
+  it("requires the explicit context-menu delete action", async () => {
+    const showContextMenu = vi.fn(async () => "delete" as const);
+    const deleteProject = vi.fn(async () => undefined);
+
+    await expect(
+      requestArkadiaInactiveProjectDeletion({
+        position: { x: 12, y: 34 },
+        showContextMenu,
+        deleteProject,
+      }),
+    ).resolves.toBe(true);
+    expect(showContextMenu).toHaveBeenCalledWith([{ id: "delete", label: "Supprimer" }], {
+      x: 12,
+      y: 34,
+    });
+    expect(deleteProject).toHaveBeenCalledOnce();
   });
 });
 

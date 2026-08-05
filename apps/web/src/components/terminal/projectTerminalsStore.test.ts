@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   addProjectTerminal,
@@ -74,4 +74,35 @@ describe("takeProjectTerminalCommand", () => {
     expect(result.command).toBeNull();
     expect(result.tabs).toBe(current);
   });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+it("does not restore terminal tabs from a previous client session", async () => {
+  const values = new Map<string, string>();
+  const storage = {
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => [...values.keys()][index] ?? null,
+    get length() {
+      return values.size;
+    },
+    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => values.set(key, value),
+  } satisfies Storage;
+  storage.setItem(
+    "t3code:project-terminals:v1",
+    JSON.stringify({
+      state: { terminalsByProjectKey: { "local:alpha": [{ terminalId: "term-1" }] } },
+      version: 0,
+    }),
+  );
+  vi.stubGlobal("localStorage", storage);
+  vi.resetModules();
+
+  const freshModule = await import("./projectTerminalsStore");
+
+  expect(freshModule.useProjectTerminalsStore.getState().terminalsByProjectKey).toEqual({});
 });

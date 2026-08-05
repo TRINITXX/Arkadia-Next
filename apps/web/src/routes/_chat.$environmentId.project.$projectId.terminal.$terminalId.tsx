@@ -8,7 +8,10 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
 
 import ArkadiaWorkspaceTabs from "../components/ArkadiaWorkspaceTabs";
-import { resolveArkadiaReturnThreadId } from "../components/arkadiaSidebarModel";
+import {
+  arkadiaWorkspaceTabKey,
+  resolveArkadiaReturnThreadId,
+} from "../components/arkadiaSidebarModel";
 import { ProjectTerminalView } from "../components/terminal/ProjectTerminalView";
 import {
   selectProjectTerminals,
@@ -16,7 +19,6 @@ import {
 } from "../components/terminal/projectTerminalsStore";
 import { useCloseProjectTerminal } from "../components/terminal/useCloseProjectTerminal";
 import { SidebarInset } from "~/components/ui/sidebar";
-import { useLeaveToNextActiveProject } from "~/hooks/useLeaveToNextActiveProject";
 import { useThreadShells } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { useUiStateStore } from "~/uiStateStore";
@@ -32,9 +34,12 @@ function ProjectTerminalRouteView() {
   const projectId = ProjectId.make(params.projectId);
   const terminalId = params.terminalId;
   const router = useRouter();
-  const leaveToNextActiveProject = useLeaveToNextActiveProject();
   const threads = useThreadShells();
   const lastVisitedAtByThreadKey = useUiStateStore((store) => store.threadLastVisitedAtById);
+  const openWorkspaceThreadTabKeyList = useUiStateStore(
+    (store) => store.openWorkspaceThreadTabKeys,
+  );
+  const openWorkspaceThreadTab = useUiStateStore((store) => store.openWorkspaceThreadTab);
 
   const projectRef = useMemo(
     () => scopeProjectRef(environmentId, projectId),
@@ -46,30 +51,57 @@ function ProjectTerminalRouteView() {
   const closeProjectTerminal = useCloseProjectTerminal(projectRef);
   const isKnownTerminal = terminals.some((terminal) => terminal.terminalId === terminalId);
 
+  const openProjectThreads = useMemo(() => {
+    const openKeys = new Set(openWorkspaceThreadTabKeyList);
+    return threads.filter(
+      (thread) =>
+        thread.environmentId === environmentId &&
+        thread.projectId === projectId &&
+        openKeys.has(arkadiaWorkspaceTabKey(thread.environmentId, thread.id)),
+    );
+  }, [environmentId, openWorkspaceThreadTabKeyList, projectId, threads]);
   const returnThreadId = useMemo(() => {
     const id = resolveArkadiaReturnThreadId({
-      threads,
+      threads: openProjectThreads,
       environmentId,
       projectId,
       lastVisitedAtByThreadKey,
     });
     return id === null ? null : ThreadId.make(id);
-  }, [environmentId, lastVisitedAtByThreadKey, projectId, threads]);
+  }, [environmentId, lastVisitedAtByThreadKey, openProjectThreads, projectId]);
+  const visibleReturnThread = useMemo(
+    () => openProjectThreads.find((thread) => thread.id === returnThreadId) ?? null,
+    [openProjectThreads, returnThreadId],
+  );
+
+  // A conversation visible beside a terminal is an open workspace tab, not a
+  // route-local fallback. Retain it before another draft/project route gets a
+  // chance to recalculate the tab list and drop a settled conversation.
+  useEffect(() => {
+    if (visibleReturnThread === null) return;
+    openWorkspaceThreadTab(
+      arkadiaWorkspaceTabKey(visibleReturnThread.environmentId, visibleReturnThread.id),
+    );
+  }, [openWorkspaceThreadTab, visibleReturnThread]);
 
   /** Where to go once this terminal is gone — closed, exited, or never existed. */
   const leaveTerminal = useCallback(() => {
-    if (returnThreadId !== null) {
+    if (visibleReturnThread !== null) {
       void router.navigate({
         to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(scopeThreadRef(environmentId, returnThreadId)),
+        params: buildThreadRouteParams(
+          scopeThreadRef(environmentId, ThreadId.make(visibleReturnThread.id)),
+        ),
         replace: true,
       });
       return;
     }
-    // No conversation to return to in this project: move on to the next active
-    // project (or the empty home page) rather than forcing a new conversation.
-    void leaveToNextActiveProject(scopedProjectKey(projectRef));
-  }, [environmentId, leaveToNextActiveProject, projectRef, returnThreadId, router]);
+    void router.navigate({
+      to: "/$environmentId/project/$projectId",
+      params: { environmentId, projectId },
+      replace: true,
+    });
+  }, [environmentId, projectId, router, visibleReturnThread]);
 
   // Covers a stale link and a tab closed from elsewhere: either way this route
   // has nothing left to render.
@@ -90,7 +122,7 @@ function ProjectTerminalRouteView() {
         projectId={projectId}
         activeThreadId={null}
         activeTerminalId={terminalId}
-        keepVisibleThreadId={returnThreadId}
+        keepVisibleThreadId={visibleReturnThread ? ThreadId.make(visibleReturnThread.id) : null}
       />
       {isKnownTerminal ? (
         <ProjectTerminalView

@@ -6,15 +6,24 @@ import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, OrchestrationThread, ScopedThreadRef } from "@t3tools/contracts";
 import type { LegendListRef } from "@legendapp/list/react";
-import { CalendarDaysIcon, FolderIcon, SearchIcon, XIcon } from "lucide-react";
+import {
+  CalendarDaysIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  FolderIcon,
+  SearchIcon,
+  XIcon,
+} from "lucide-react";
 import {
   useEffect,
   useMemo,
   useReducer,
   useRef,
+  useState,
   type KeyboardEvent,
   type ReactElement,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { deriveTimelineEntries } from "../session-logic";
 import { useThreadDetail, useThreadSearch, type ThreadDetailView } from "../state/queries";
@@ -22,11 +31,23 @@ import { cn } from "../lib/utils";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import {
   buildRecentSessionRows,
+  formatRecentSessionDateLabel,
+  formatRecentSessionTime,
   groupRecentSessionRows,
   type RecentSessionGroup,
   type RecentSessionGroupingMode,
   type RecentSessionRow,
 } from "./recentSessionsNavigator.logic";
+
+export function toggleRecentSessionGroupCollapsed(
+  collapsedGroupKeys: ReadonlySet<string>,
+  groupKey: string,
+): ReadonlySet<string> {
+  const next = new Set(collapsedGroupKeys);
+  if (next.has(groupKey)) next.delete(groupKey);
+  else next.add(groupKey);
+  return next;
+}
 
 export interface RecentSessionsNavigatorState {
   readonly query: string;
@@ -61,6 +82,7 @@ export interface RecentSessionsNavigatorViewModel {
   readonly rows: ReadonlyArray<RecentSessionRow>;
   readonly groups: ReadonlyArray<RecentSessionGroup>;
   readonly selectedRow: RecentSessionRow | null;
+  readonly now: Date;
 }
 
 export function deriveRecentSessionsNavigatorViewModel(input: {
@@ -70,6 +92,7 @@ export function deriveRecentSessionsNavigatorViewModel(input: {
   readonly state: RecentSessionsNavigatorState;
   readonly now?: Date;
 }): RecentSessionsNavigatorViewModel {
+  const now = input.now ?? new Date();
   const rows = buildRecentSessionRows({
     threads: input.threads,
     projects: input.projects,
@@ -79,8 +102,9 @@ export function deriveRecentSessionsNavigatorViewModel(input: {
   const selectedRow = rows.find((row) => row.key === input.state.selectedKey) ?? rows[0] ?? null;
   return {
     rows,
-    groups: groupRecentSessionRows(rows, input.state.grouping, input.now),
+    groups: groupRecentSessionRows(rows, input.state.grouping, now),
     selectedRow,
+    now,
   };
 }
 
@@ -202,6 +226,9 @@ export function RecentSessionsNavigatorView({
   onFocusOpenThread,
 }: RecentSessionsNavigatorViewProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   useEffect(() => {
     if (open) searchInputRef.current?.focus();
   }, [open]);
@@ -234,9 +261,9 @@ export function RecentSessionsNavigatorView({
     onSelect(viewModel.rows[nextIndex]!.key);
   };
 
-  return (
+  const dialog = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
       onKeyDown={handleKeyDown}
     >
       <button
@@ -249,7 +276,7 @@ export function RecentSessionsNavigatorView({
         role="dialog"
         aria-modal="true"
         aria-labelledby="recent-sessions-title"
-        className="relative grid h-[min(780px,calc(100vh-2rem))] w-[min(1180px,calc(100vw-2rem))] grid-cols-[minmax(280px,0.38fr)_minmax(0,0.62fr)] overflow-hidden rounded-2xl border border-border/70 bg-background shadow-2xl max-md:grid-cols-1"
+        className="relative grid h-[calc(100dvh-3rem)] max-h-[1000px] w-[calc(100dvw-3rem)] max-w-[1600px] grid-cols-[minmax(360px,0.34fr)_minmax(0,0.66fr)] overflow-hidden rounded-2xl border border-border/70 bg-background shadow-2xl max-md:grid-cols-1"
       >
         <div className="flex min-h-0 flex-col border-r border-border/65 max-md:border-r-0">
           <header className="border-b border-border/65 p-4">
@@ -311,19 +338,51 @@ export function RecentSessionsNavigatorView({
             ) : (
               viewModel.groups.map((group) => (
                 <section key={group.key} className="mb-3 last:mb-0">
-                  <h3 className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-                    {group.label}
-                  </h3>
-                  <div className="space-y-1">
-                    {group.rows.map((row) => (
-                      <RecentSessionRowButton
-                        key={row.key}
-                        row={row}
-                        selected={row.key === viewModel.selectedRow?.key}
-                        onSelect={onSelect}
-                      />
-                    ))}
-                  </div>
+                  {grouping === "project" ? (
+                    <button
+                      type="button"
+                      aria-expanded={!collapsedGroupKeys.has(group.key)}
+                      aria-label={`${collapsedGroupKeys.has(group.key) ? "Déplier" : "Replier"} ${group.label}`}
+                      className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 hover:bg-muted/45 hover:text-foreground"
+                      onClick={() =>
+                        setCollapsedGroupKeys((current) =>
+                          toggleRecentSessionGroupCollapsed(current, group.key),
+                        )
+                      }
+                    >
+                      {collapsedGroupKeys.has(group.key) ? (
+                        <ChevronRightIcon className="size-3.5" />
+                      ) : (
+                        <ChevronDownIcon className="size-3.5" />
+                      )}
+                      <span className="truncate">{group.label}</span>
+                      <span className="ml-auto tabular-nums">{group.rows.length}</span>
+                    </button>
+                  ) : (
+                    <h3 className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                      {group.label}
+                    </h3>
+                  )}
+                  {!collapsedGroupKeys.has(group.key) ? (
+                    <div className="space-y-1">
+                      {group.rows.map((row) => (
+                        <RecentSessionRowButton
+                          key={row.key}
+                          row={row}
+                          selected={row.key === viewModel.selectedRow?.key}
+                          onSelect={onSelect}
+                          {...(grouping === "project"
+                            ? {
+                                dateLabel: formatRecentSessionDateLabel(
+                                  row.updatedAt,
+                                  viewModel.now,
+                                ),
+                              }
+                            : {})}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </section>
               ))
             )}
@@ -343,6 +402,7 @@ export function RecentSessionsNavigatorView({
       </section>
     </div>
   );
+  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
 }
 
 function GroupingButton(props: {
@@ -373,10 +433,12 @@ export function RecentSessionRowButton({
   row,
   selected,
   onSelect,
+  dateLabel,
 }: {
   readonly row: RecentSessionRow;
   readonly selected: boolean;
   readonly onSelect: (key: string) => void;
+  readonly dateLabel?: string;
 }): ReactElement<{ readonly onClick: () => void }> {
   return (
     <button
@@ -398,6 +460,10 @@ export function RecentSessionRowButton({
         <span>{row.providerLabel}</span>
         <span aria-hidden>·</span>
         <span className="truncate">{row.modelLabel}</span>
+        <span className="ml-auto flex shrink-0 flex-col items-end tabular-nums">
+          {dateLabel ? <span>{dateLabel}</span> : null}
+          <time dateTime={row.updatedAt}>{formatRecentSessionTime(row.updatedAt)}</time>
+        </span>
       </span>
       {row.excerpt ? (
         <span className="mt-1.5 line-clamp-2 block text-xs leading-relaxed text-muted-foreground/85">

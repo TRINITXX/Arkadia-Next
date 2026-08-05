@@ -58,6 +58,16 @@ const environmentInput = {
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
 
+describe("Windows title bar geometry", () => {
+  it("ends native hover states at the 36px workspace-tab divider", () => {
+    const options = DesktopWindow.getWindowTitleBarOptions(true, "win32");
+    assert.equal(
+      typeof options.titleBarOverlay === "object" ? options.titleBarOverlay.height : null,
+      36,
+    );
+  });
+});
+
 function makeFakeBrowserWindow() {
   const windowListeners = new Map<string, (...args: readonly unknown[]) => void>();
   const webContentsListeners = new Map<string, (...args: readonly unknown[]) => void>();

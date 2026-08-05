@@ -15,6 +15,7 @@ import { primaryServerKeybindingsAtom } from "~/state/server";
 import { terminalEnvironment } from "~/state/terminal";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { projectTerminalThreadId } from "~/terminal/projectTerminals";
+import { ArkadiaToolbar } from "../toolbar/ArkadiaToolbar";
 import { useProjectTerminalsStore } from "./projectTerminalsStore";
 
 interface ProjectTerminalViewProps {
@@ -49,9 +50,11 @@ export function ProjectTerminalView({
   );
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const takePendingCommand = useProjectTerminalsStore((store) => store.takePendingCommand);
+  const openProjectTerminal = useProjectTerminalsStore((store) => store.openTerminal);
   const openTerminal = useAtomCommand(terminalEnvironment.open, { reportFailure: false });
   const writeTerminal = useAtomCommand(terminalEnvironment.write, { reportFailure: false });
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [focusRequestId, setFocusRequestId] = useState(0);
 
   const workspaceRoot = project?.workspaceRoot ?? null;
   const runtimeEnv = useMemo(
@@ -113,6 +116,18 @@ export function ProjectTerminalView({
     void navigate({ to: "/" });
   }, [navigate]);
 
+  const runToolbarAction = useCallback(
+    (command: string) => {
+      const nextTerminalId = openProjectTerminal(projectRef, { pendingCommand: command });
+      void navigate({
+        to: "/$environmentId/project/$projectId/terminal/$terminalId",
+        params: { environmentId, projectId, terminalId: nextTerminalId },
+      });
+    },
+    [environmentId, navigate, openProjectTerminal, projectId, projectRef],
+  );
+  const restoreTerminalFocus = useCallback(() => setFocusRequestId((current) => current + 1), []);
+
   if (!workspaceRoot) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
@@ -131,7 +146,19 @@ export function ProjectTerminalView({
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+    <div className="thread-terminal-drawer flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+      <header
+        data-chat-header=""
+        data-project-terminal-toolbar=""
+        className="workspace-topbar drag-region relative h-9! min-h-9! shrink-0 bg-zinc-950 px-2"
+      >
+        <ArkadiaToolbar
+          browserAvailable={false}
+          onRunAction={runToolbarAction}
+          onOpenNotepad={restoreTerminalFocus}
+          onOpenBrowser={restoreTerminalFocus}
+        />
+      </header>
       {launchError !== null && (
         <div className="shrink-0 border-destructive/40 border-b bg-destructive/10 px-3 py-1.5 text-destructive-foreground text-xs">
           {launchError}
@@ -147,7 +174,7 @@ export function ProjectTerminalView({
           cwd={workspaceRoot}
           {...(runtimeEnv ? { runtimeEnv } : {})}
           onSessionExited={onExited}
-          focusRequestId={0}
+          focusRequestId={focusRequestId}
           autoFocus
           // The Ghostty surface observes its own container and refits, so this
           // surface has no drawer geometry to feed back in.

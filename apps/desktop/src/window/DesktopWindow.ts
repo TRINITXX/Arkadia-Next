@@ -25,7 +25,7 @@ import {
 import * as PreviewManager from "../preview/Manager.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 
-const TITLEBAR_HEIGHT = 40;
+const TITLEBAR_HEIGHT = 36;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
@@ -194,7 +194,7 @@ export function isRetryableDevelopmentRendererLoadFailure(input: {
   );
 }
 
-function getWindowTitleBarOptions(
+export function getWindowTitleBarOptions(
   shouldUseDarkColors: boolean,
   platform: NodeJS.Platform,
 ): WindowTitleBarOptions {

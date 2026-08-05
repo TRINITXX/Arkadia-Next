@@ -19,6 +19,7 @@ import {
   hasConfiguredMcpServer,
   isRecoverableThreadResumeError,
   openCodexThread,
+  readCodexNotificationRouteFields,
 } from "./CodexSessionRuntime.ts";
 const isCodexAppServerRequestError = Schema.is(CodexErrors.CodexAppServerRequestError);
 
@@ -36,6 +37,37 @@ describe("CodexSessionRuntimeIdentifierGenerationError", () => {
       error.message,
       "Failed to generate Codex App Server identifier for provider-event.",
     );
+  });
+});
+
+describe("readCodexNotificationRouteFields", () => {
+  it("keeps the turn id attached to live token usage notifications", () => {
+    const route = readCodexNotificationRouteFields({
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: "provider-thread-1",
+        turnId: "provider-turn-1",
+        tokenUsage: {
+          total: {
+            inputTokens: 120,
+            cachedInputTokens: 0,
+            outputTokens: 6,
+            reasoningOutputTokens: 0,
+            totalTokens: 126,
+          },
+          last: {
+            inputTokens: 120,
+            cachedInputTokens: 0,
+            outputTokens: 6,
+            reasoningOutputTokens: 0,
+            totalTokens: 126,
+          },
+          modelContextWindow: 258_400,
+        },
+      },
+    });
+
+    NodeAssert.equal(route.turnId, "provider-turn-1");
   });
 });
 

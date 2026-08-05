@@ -4,8 +4,8 @@
  * Terminals opened from the toolbar belong to the project, not to whichever
  * conversation happened to be on screen: the user asked for a shell in this
  * folder, and closing the conversation must not take it away. The list is
- * therefore keyed by scoped project ref, and it persists so terminals survive
- * a window reload the same way the server-side PTYs do.
+ * therefore keyed by scoped project ref. It remains in memory only: a client
+ * restart closes every terminal tab even if a server-side PTY still exists.
  *
  * The transition helpers are exported and pure (same convention as
  * `uiStateStore.ts` and `notepadStore.ts`); the store is a thin keyed wrapper
@@ -14,7 +14,6 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey } from "@t3tools/client-runtime/environment";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
 
 import { nextProjectTerminalId } from "~/terminal/projectTerminals";
 
@@ -29,8 +28,6 @@ export interface ProjectTerminalTab {
    */
   readonly pendingCommand?: string;
 }
-
-const PROJECT_TERMINALS_STORAGE_KEY = "t3code:project-terminals:v1";
 
 const EMPTY_PROJECT_TERMINALS: ReadonlyArray<ProjectTerminalTab> = Object.freeze([]);
 
@@ -86,54 +83,45 @@ interface ProjectTerminalsStoreState {
   takePendingCommand: (projectRef: ScopedProjectRef, terminalId: string) => string | null;
 }
 
-export const useProjectTerminalsStore = create<ProjectTerminalsStoreState>()(
-  persist(
-    (set, get) => ({
-      terminalsByProjectKey: {},
-      openTerminal: (projectRef, options) => {
-        const projectKey = scopedProjectKey(projectRef);
-        const current = selectProjectTerminals(get().terminalsByProjectKey, projectKey);
-        const result = addProjectTerminal(
-          current,
-          options?.pendingCommand ? { pendingCommand: options.pendingCommand } : undefined,
-        );
-        set((state) => ({
-          terminalsByProjectKey: {
-            ...state.terminalsByProjectKey,
-            [projectKey]: result.tabs,
-          },
-        }));
-        return result.terminalId;
+export const useProjectTerminalsStore = create<ProjectTerminalsStoreState>((set, get) => ({
+  terminalsByProjectKey: {},
+  openTerminal: (projectRef, options) => {
+    const projectKey = scopedProjectKey(projectRef);
+    const current = selectProjectTerminals(get().terminalsByProjectKey, projectKey);
+    const result = addProjectTerminal(
+      current,
+      options?.pendingCommand ? { pendingCommand: options.pendingCommand } : undefined,
+    );
+    set((state) => ({
+      terminalsByProjectKey: {
+        ...state.terminalsByProjectKey,
+        [projectKey]: result.tabs,
       },
-      closeTerminal: (projectRef, terminalId) => {
-        const projectKey = scopedProjectKey(projectRef);
-        set((state) => {
-          const current = selectProjectTerminals(state.terminalsByProjectKey, projectKey);
-          const next = removeProjectTerminal(current, terminalId);
-          if (next === current) return state;
-          return {
-            terminalsByProjectKey: { ...state.terminalsByProjectKey, [projectKey]: next },
-          };
-        });
+    }));
+    return result.terminalId;
+  },
+  closeTerminal: (projectRef, terminalId) => {
+    const projectKey = scopedProjectKey(projectRef);
+    set((state) => {
+      const current = selectProjectTerminals(state.terminalsByProjectKey, projectKey);
+      const next = removeProjectTerminal(current, terminalId);
+      if (next === current) return state;
+      return {
+        terminalsByProjectKey: { ...state.terminalsByProjectKey, [projectKey]: next },
+      };
+    });
+  },
+  takePendingCommand: (projectRef, terminalId) => {
+    const projectKey = scopedProjectKey(projectRef);
+    const current = selectProjectTerminals(get().terminalsByProjectKey, projectKey);
+    const result = takeProjectTerminalCommand(current, terminalId);
+    if (result.command === null) return null;
+    set((state) => ({
+      terminalsByProjectKey: {
+        ...state.terminalsByProjectKey,
+        [projectKey]: result.tabs,
       },
-      takePendingCommand: (projectRef, terminalId) => {
-        const projectKey = scopedProjectKey(projectRef);
-        const current = selectProjectTerminals(get().terminalsByProjectKey, projectKey);
-        const result = takeProjectTerminalCommand(current, terminalId);
-        if (result.command === null) return null;
-        set((state) => ({
-          terminalsByProjectKey: {
-            ...state.terminalsByProjectKey,
-            [projectKey]: result.tabs,
-          },
-        }));
-        return result.command;
-      },
-    }),
-    {
-      name: PROJECT_TERMINALS_STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ terminalsByProjectKey: state.terminalsByProjectKey }),
-    },
-  ),
-);
+    }));
+    return result.command;
+  },
+}));

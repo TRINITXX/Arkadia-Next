@@ -2,15 +2,15 @@ import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
-  closeWorkspaceTab,
+  closeWorkspaceThreadTab,
   legacyProjectCwdPreferenceKey,
   markThreadUnread,
   markThreadVisited,
+  openWorkspaceThreadTab,
   parsePersistedState,
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
-  reopenWorkspaceTab,
   reorderProjects,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
@@ -25,21 +25,23 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
-    closedWorkspaceTabKeys: [],
+    openWorkspaceThreadTabKeys: [],
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
 }
 
 describe("uiStateStore pure functions", () => {
-  it("remembers closed workspace tabs until they are reopened", () => {
+  it("stores only explicitly opened conversation tabs", () => {
     const state = makeUiState();
-    const closed = closeWorkspaceTab(state, "local:thread-1");
+    const opened = openWorkspaceThreadTab(state, "local:thread-1");
 
-    expect(closed.closedWorkspaceTabKeys).toEqual(["local:thread-1"]);
-    expect(closeWorkspaceTab(closed, "local:thread-1")).toBe(closed);
-    expect(reopenWorkspaceTab(closed, "local:thread-1").closedWorkspaceTabKeys).toEqual([]);
-    expect(reopenWorkspaceTab(state, "local:thread-1")).toBe(state);
+    expect(opened.openWorkspaceThreadTabKeys).toEqual(["local:thread-1"]);
+    expect(openWorkspaceThreadTab(opened, "local:thread-1")).toBe(opened);
+    expect(closeWorkspaceThreadTab(opened, "local:thread-1").openWorkspaceThreadTabKeys).toEqual(
+      [],
+    );
+    expect(closeWorkspaceThreadTab(state, "local:thread-1")).toBe(state);
   });
 
   it("stores server timestamps without moving visit state backwards", () => {
@@ -160,6 +162,15 @@ describe("uiStateStore pure functions", () => {
 });
 
 describe("parsePersistedState", () => {
+  it("migrates explicitly retained legacy conversations into open tabs", () => {
+    const parsed = parsePersistedState({
+      retainedWorkspaceTabKeys: ["local:thread-1", "local:thread-1", "remote:thread-2"],
+      closedWorkspaceTabKeys: ["local:closed"],
+    });
+
+    expect(parsed.openWorkspaceThreadTabKeys).toEqual(["local:thread-1", "remote:thread-2"]);
+  });
+
   it("hydrates raw UI-owned state without server entities", () => {
     const parsed = parsePersistedState({
       projectExpandedById: {
@@ -196,7 +207,7 @@ describe("parsePersistedState", () => {
           "turn-2": true,
         },
       },
-      closedWorkspaceTabKeys: [],
+      openWorkspaceThreadTabKeys: [],
     });
   });
 
@@ -317,7 +328,7 @@ describe("uiStateStore persistence", () => {
           "turn-2": true,
         },
       },
-      closedWorkspaceTabKeys: [],
+      openWorkspaceThreadTabKeys: [],
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,

@@ -5,7 +5,12 @@ import type {
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildRecentSessionRows, groupRecentSessionRows } from "./recentSessionsNavigator.logic";
+import {
+  buildRecentSessionRows,
+  formatRecentSessionDateLabel,
+  formatRecentSessionTime,
+  groupRecentSessionRows,
+} from "./recentSessionsNavigator.logic";
 
 const NOW = new Date("2026-08-05T12:00:00.000Z");
 
@@ -164,6 +169,19 @@ describe("buildRecentSessionRows", () => {
 });
 
 describe("groupRecentSessionRows", () => {
+  it("formats today, yesterday, explicit calendar dates and row times", () => {
+    expect(formatRecentSessionDateLabel("2026-08-05T11:00:00.000Z", NOW, "fr-FR", "UTC")).toBe(
+      "Aujourd’hui",
+    );
+    expect(formatRecentSessionDateLabel("2026-08-04T09:00:00.000Z", NOW, "fr-FR", "UTC")).toBe(
+      "Hier",
+    );
+    expect(formatRecentSessionDateLabel("2026-07-20T09:00:00.000Z", NOW, "fr-FR", "UTC")).toBe(
+      "20 juillet 2026",
+    );
+    expect(formatRecentSessionTime("2026-08-05T11:07:00.000Z", "fr-FR", "UTC")).toBe("11:07");
+  });
+
   it("builds relative date buckets without changing the complete result set", () => {
     const rows = buildRecentSessionRows({ threads, projects, query: "", contentMatches: [] });
     const groups = groupRecentSessionRows(rows, "date", NOW);
@@ -172,7 +190,7 @@ describe("groupRecentSessionRows", () => {
       [
         ["Aujourd’hui", ["latest"]],
         ["Hier", ["yesterday"]],
-        ["Plus ancien", ["older"]],
+        ["20 juillet 2026", ["older"]],
       ],
     );
     expect(groups.flatMap((group) => group.rows)).toHaveLength(rows.length);

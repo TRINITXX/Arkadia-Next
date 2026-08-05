@@ -851,6 +851,24 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(draftByKey(draftId)).toBeUndefined();
   });
 
+  it("preserves the previous draft when opening another workspace tab", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setPrompt(draftId, "first tab draft");
+
+    store.setProjectDraftThreadId(projectRef, otherDraftId, {
+      threadId: otherThreadId,
+      preservePreviousDraft: true,
+    });
+
+    const next = useComposerDraftStore.getState();
+    expect(next.getDraftThreadByLogicalProjectKey(scopedProjectKey(projectRef))?.threadId).toBe(
+      otherThreadId,
+    );
+    expect(next.getDraftThread(draftId)?.threadId).toBe(threadId);
+    expect(next.getComposerDraft(draftId)?.prompt).toBe("first tab draft");
+  });
+
   it("keeps composer drafts when the thread is still mapped by another project", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, { threadId });

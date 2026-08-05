@@ -52,6 +52,7 @@ export function useNewThreadHandler() {
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
+        forceNew?: boolean;
       },
     ): Promise<void> => {
       const {
@@ -126,7 +127,7 @@ export function useNewThreadHandler() {
           ? getDraftThread(currentRouteTarget.threadRef)
           : getDraftSession(currentRouteTarget.draftId)
         : null;
-      if (reusableStoredDraftThread) {
+      if (reusableStoredDraftThread && !options?.forceNew) {
         return (async () => {
           const isDraftAlreadyOpen =
             currentRouteTarget?.kind === "draft" &&
@@ -209,6 +210,7 @@ export function useNewThreadHandler() {
 
       if (
         latestActiveDraftThread &&
+        !options?.forceNew &&
         currentRouteTarget?.kind === "draft" &&
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
         latestActiveDraftThread.promotedTo == null
@@ -258,6 +260,7 @@ export function useNewThreadHandler() {
             }),
           runtimeMode: DEFAULT_RUNTIME_MODE,
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
+          ...(options?.forceNew ? { preservePreviousDraft: true } : {}),
         });
         applyStickyState(draftId);
         if (carryModelSelection) {

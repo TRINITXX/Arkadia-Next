@@ -154,6 +154,10 @@ describe("DesktopEnvironment", () => {
         Option.getOrThrow(environment.resolvePickFolderDefaultPath({ initialPath: "~/project" })),
         "/Users/alice/project",
       );
+      assertPathEqual(
+        Option.getOrThrow(environment.resolvePickFolderDefaultPath({ initialPath: "~/Desktop" })),
+        "/Users/alice/Desktop",
+      );
     }),
   );
 });

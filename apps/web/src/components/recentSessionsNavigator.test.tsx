@@ -13,6 +13,7 @@ import {
   RecentSessionsNavigatorView,
   reduceRecentSessionsNavigatorState,
   resumeRecentSession,
+  toggleRecentSessionGroupCollapsed,
 } from "./RecentSessionsNavigator";
 
 function project(id: string, title: string): EnvironmentProject {
@@ -134,6 +135,12 @@ describe("RecentSessionsNavigator", () => {
     expect(projectView.groups.map((group) => group.label)).toEqual(["Arkadia Next", "VTC Planner"]);
   });
 
+  it("collapses and expands a complete project section", () => {
+    const collapsed = toggleRecentSessionGroupCollapsed(new Set(), "project:arkadia");
+    expect([...collapsed]).toEqual(["project:arkadia"]);
+    expect([...toggleRecentSessionGroupCollapsed(collapsed, "project:arkadia")]).toEqual([]);
+  });
+
   it("selecting a row requests only a preview", () => {
     const onSelect = vi.fn();
     const onResume = vi.fn();
@@ -185,6 +192,44 @@ describe("RecentSessionsNavigator", () => {
     expect(markup).toContain("gpt-5.6");
     expect(markup).toContain("Arkadia Next");
     expect(markup).toContain("Chargement de la conversation");
+    expect(markup).toContain("max-w-[1600px]");
+    expect(markup).toContain("max-h-[1000px]");
+    expect(markup).toContain("<time");
+  });
+
+  it("renders project sections with an explicit collapse control", () => {
+    const projectState = reduceRecentSessionsNavigatorState(
+      createInitialRecentSessionsNavigatorState(),
+      { type: "grouping-changed", grouping: "project" },
+    );
+    const viewModel = deriveRecentSessionsNavigatorViewModel({
+      threads,
+      projects,
+      contentMatches: [],
+      state: projectState,
+      now: new Date("2026-08-05T13:00:00.000Z"),
+    });
+    const markup = renderToStaticMarkup(
+      <RecentSessionsNavigatorView
+        open
+        query=""
+        grouping="project"
+        viewModel={viewModel}
+        threadDetail={{ data: null, error: null, isPending: true, isDeleted: false }}
+        onClose={() => {}}
+        onQueryChange={() => {}}
+        onGroupingChange={() => {}}
+        onSelect={() => {}}
+        environmentIds={["local"] as never}
+        onResume={() => {}}
+        onFocusOpenThread={() => false}
+      />,
+    );
+
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain("Replier Arkadia Next");
+    expect(markup).toMatch(/Aujourd’hui[\s\S]*<time[^>]*>14:00<\/time>/);
+    expect(markup).toMatch(/Hier[\s\S]*<time[^>]*>14:00<\/time>/);
   });
 
   it("focuses an existing tab without resuming a second copy, then closes", () => {
