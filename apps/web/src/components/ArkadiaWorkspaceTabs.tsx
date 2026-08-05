@@ -40,6 +40,7 @@ import { useUiStateStore } from "../uiStateStore";
 import {
   arkadiaWorkspaceTabKey,
   buildArkadiaWorkspaceTabs,
+  prependArkadiaWorkspaceTabKey,
   resolveArkadiaDraftTabId,
   resolveArkadiaTabAfterClose,
   resolveArkadiaThreadIndicator,
@@ -332,6 +333,7 @@ export default function ArkadiaWorkspaceTabs({
   const projectTerminals = useProjectTerminalsStore((store) =>
     selectProjectTerminals(store.terminalsByProjectKey, scopedProjectKey(projectRef)),
   );
+  const openProjectTerminal = useProjectTerminalsStore((store) => store.openTerminal);
   const closeProjectTerminal = useCloseProjectTerminal(projectRef);
 
   const openTerminalTab = useCallback(
@@ -421,6 +423,19 @@ export default function ArkadiaWorkspaceTabs({
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  const openNewTerminal = useCallback(() => {
+    const terminalId = openProjectTerminal(projectRef);
+    const terminalKey = `terminal:${terminalId}`;
+    setTabOrder(
+      projectKey,
+      prependArkadiaWorkspaceTabKey(
+        orderedTabItems.map((item) => item.key),
+        terminalKey,
+      ),
+    );
+    openTerminalTab(terminalId);
+  }, [openProjectTerminal, openTerminalTab, orderedTabItems, projectKey, projectRef, setTabOrder]);
+
   const handleTabDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
@@ -470,6 +485,15 @@ export default function ArkadiaWorkspaceTabs({
       data-arkadia-workspace-tabs=""
     >
       <div className="scrollbar-none flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden">
+        <button
+          type="button"
+          aria-label="Nouveau terminal"
+          title="Nouveau terminal"
+          className="flex w-9 shrink-0 items-center justify-center border-r border-zinc-800 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200 [-webkit-app-region:no-drag]"
+          onClick={openNewTerminal}
+        >
+          <SquareTerminalIcon size={14} strokeWidth={1.75} />
+        </button>
         <DndContext
           collisionDetection={closestCenter}
           onDragEnd={handleTabDragEnd}

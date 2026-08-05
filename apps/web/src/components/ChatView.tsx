@@ -110,7 +110,6 @@ import {
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
@@ -4154,7 +4153,7 @@ function ChatViewContent(props: ChatViewProps) {
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
-      if (!activeThreadId || isCommandPaletteOpen()) {
+      if (!activeThreadId) {
         return;
       }
       const terminalFocusOwner = getTerminalFocusOwner();
@@ -5571,9 +5570,7 @@ function ChatViewContent(props: ChatViewProps) {
           )}
         >
           <ArkadiaToolbar
-            terminalAvailable={activeProject !== null}
             browserAvailable={isPreviewSupportedInRuntime()}
-            onOpenNewTerminal={() => openToolbarTerminal()}
             onRunAction={(command) => openToolbarTerminal(command)}
             onOpenNotepad={addNotepadSurface}
             onOpenBrowser={createBrowserSurface}

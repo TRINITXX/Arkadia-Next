@@ -1,5 +1,6 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { useParams, useRouter } from "@tanstack/react-router";
 import {
   DndContext,
@@ -16,13 +17,13 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { getProjectOrderKey } from "../logicalProject";
 import { useUiStateStore } from "../uiStateStore";
-import { openCommandPalette } from "../commandPaletteBus";
 import { useClientSettings } from "../hooks/useSettings";
 import { useLeaveToNextActiveProject } from "../hooks/useLeaveToNextActiveProject";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useProjects, useThreadShells } from "../state/entities";
+import { useEnvironments } from "../state/environments";
 import { terminalEnvironment } from "../state/terminal";
 import { useAtomCommand } from "../state/use-atom-command";
 import { projectTerminalThreadId } from "../terminal/projectTerminals";
@@ -31,17 +32,19 @@ import {
   resolveActiveThreadRouteRef,
   resolveThreadRouteTarget,
 } from "../threadRoutes";
-import { useComposerDraftStore } from "../composerDraftStore";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 import {
   arkadiaWorkspaceTabKey,
   buildArkadiaSidebarGroups,
   resolveArkadiaActiveProjectLayout,
+  resolveArkadiaInactiveProjectOpenTarget,
   resolveArkadiaThreadIndicator,
   shortenArkadiaProjectPath,
   type ArkadiaSidebarProjectGroup,
 } from "./arkadiaSidebarModel";
 import { selectProjectTerminals, useProjectTerminalsStore } from "./terminal/projectTerminalsStore";
 import { useWorkspaceTabOrderStore } from "./workspaceTabOrderStore";
+import { RecentSessionsNavigator } from "./RecentSessionsNavigator";
 
 type SidebarView = "active" | "inactive";
 
@@ -284,6 +287,7 @@ function SortableProjectRow(props: { readonly id: string; readonly children: Rea
 export default function ArkadiaSidebar() {
   const projects = useProjects();
   const threads = useThreadShells();
+  const { environments } = useEnvironments();
   const router = useRouter();
   const nowMinute = useNowMinute();
   const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
@@ -291,12 +295,15 @@ export default function ArkadiaSidebar() {
   const leaveToNextActiveProject = useLeaveToNextActiveProject();
   const { settleThread } = useThreadActions();
   const closeWorkspaceTab = useUiStateStore((store) => store.closeWorkspaceTab);
+  const reopenWorkspaceTab = useUiStateStore((store) => store.reopenWorkspaceTab);
+  const closedWorkspaceTabKeys = useUiStateStore((store) => store.closedWorkspaceTabKeys);
   const closeProjectTerminalTab = useProjectTerminalsStore((store) => store.closeTerminal);
   const closeTerminalSession = useAtomCommand(terminalEnvironment.close, { reportFailure: false });
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const tabOrderByProjectKey = useWorkspaceTabOrderStore((store) => store.orderByProjectKey);
   const [view, setView] = useState<SidebarView>("inactive");
+  const [recentSessionsOpen, setRecentSessionsOpen] = useState(false);
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -354,6 +361,63 @@ export default function ArkadiaSidebar() {
     [router],
   );
 
+  const connectedEnvironmentIds = useMemo(
+    () =>
+      environments
+        .filter((environment) => environment.connection.phase === "connected")
+        .map((environment) => environment.environmentId),
+    [environments],
+  );
+  const closedWorkspaceTabKeySet = useMemo(
+    () => new Set(closedWorkspaceTabKeys),
+    [closedWorkspaceTabKeys],
+  );
+  const navigateToThreadRef = useCallback(
+    (ref: ReturnType<typeof scopeThreadRef>) => {
+      void router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(ref),
+      });
+    },
+    [router],
+  );
+  const resumeThread = useCallback(
+    (ref: ReturnType<typeof scopeThreadRef>) => {
+      reopenWorkspaceTab(arkadiaWorkspaceTabKey(ref.environmentId, ref.threadId));
+      navigateToThreadRef(ref);
+    },
+    [navigateToThreadRef, reopenWorkspaceTab],
+  );
+  const focusOpenThread = useCallback(
+    (ref: ReturnType<typeof scopeThreadRef>): boolean => {
+      const thread = threads.find(
+        (candidate) =>
+          candidate.environmentId === ref.environmentId && candidate.id === ref.threadId,
+      );
+      if (!thread || thread.archivedAt !== null) return false;
+      const isCurrent =
+        routeThreadRef?.environmentId === ref.environmentId &&
+        routeThreadRef.threadId === ref.threadId;
+      const isVisibleWorkspaceTab =
+        !closedWorkspaceTabKeySet.has(arkadiaWorkspaceTabKey(ref.environmentId, ref.threadId)) &&
+        !effectiveSettled(thread, {
+          now: `${nowMinute}:00.000Z`,
+          autoSettleAfterDays,
+        });
+      if (!isCurrent && !isVisibleWorkspaceTab) return false;
+      navigateToThreadRef(ref);
+      return true;
+    },
+    [
+      autoSettleAfterDays,
+      closedWorkspaceTabKeySet,
+      navigateToThreadRef,
+      nowMinute,
+      routeThreadRef,
+      threads,
+    ],
+  );
+
   const openProject = useCallback(
     (group: ArkadiaSidebarProjectGroup) => {
       const currentThread = group.threads.find((thread) => thread.id === activeThreadId);
@@ -365,6 +429,25 @@ export default function ArkadiaSidebar() {
       void handleNewThread(scopeProjectRef(group.project.environmentId, group.project.id));
     },
     [activeThreadId, handleNewThread, openThread],
+  );
+
+  const openInactiveProject = useCallback(
+    (group: ArkadiaSidebarProjectGroup) => {
+      const target = resolveArkadiaInactiveProjectOpenTarget(
+        useComposerDraftStore.getState().draftThreadsByThreadKey,
+        group.project.environmentId,
+        group.project.id,
+      );
+      if (target.kind === "draft") {
+        void router.navigate({
+          to: "/draft/$draftId",
+          params: { draftId: DraftId.make(target.draftId) },
+        });
+        return;
+      }
+      void handleNewThread(scopeProjectRef(group.project.environmentId, group.project.id));
+    },
+    [handleNewThread, router],
   );
 
   // Closing a project terminates its shells for good, the same way the tab bar
@@ -478,118 +561,122 @@ export default function ArkadiaSidebar() {
   );
 
   return (
-    <div
-      data-arkadia-sidebar=""
-      className="flex h-full min-h-0 w-full flex-col bg-zinc-950 text-zinc-300"
-    >
-      <div className="flex shrink-0 border-b border-zinc-800">
-        <button
-          className={`flex-1 px-2 py-2 text-xs ${
-            view === "active" ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900"
-          }`}
-          onClick={() => setView("active")}
-          type="button"
-        >
-          Active{groups.active.length > 0 ? ` · ${groups.active.length}` : ""}
-        </button>
-        <button
-          className={`flex-1 border-l border-zinc-800 px-2 py-2 text-xs ${
-            view === "inactive" ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900"
-          }`}
-          onClick={() => setView("inactive")}
-          type="button"
-        >
-          Inactive
-        </button>
-      </div>
+    <>
+      <div
+        data-arkadia-sidebar=""
+        className="flex h-full min-h-0 w-full flex-col bg-zinc-950 text-zinc-300"
+      >
+        <div className="flex shrink-0 border-b border-zinc-800">
+          <button
+            className={`flex-1 px-2 py-2 text-xs ${
+              view === "active" ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900"
+            }`}
+            onClick={() => setView("active")}
+            type="button"
+          >
+            Active{groups.active.length > 0 ? ` · ${groups.active.length}` : ""}
+          </button>
+          <button
+            className={`flex-1 border-l border-zinc-800 px-2 py-2 text-xs ${
+              view === "inactive" ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900"
+            }`}
+            onClick={() => setView("inactive")}
+            type="button"
+          >
+            Inactive
+          </button>
+        </div>
 
-      <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto py-2">
-        {view === "active" ? (
-          groups.active.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-zinc-500">
-              aucun projet actif — envoyez un message pour commencer
-            </div>
+        <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto py-2">
+          {view === "active" ? (
+            groups.active.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-zinc-500">
+                aucun projet actif — envoyez un message pour commencer
+              </div>
+            ) : (
+              <DndContext
+                collisionDetection={closestCenter}
+                onDragEnd={(event) => handleReorder(event, groups.active)}
+                sensors={sensors}
+              >
+                <SortableContext
+                  items={groups.active.map((group) =>
+                    scopedProjectKey(group.project.environmentId, group.project.id),
+                  )}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {groups.active.map((group) => {
+                    const key = scopedProjectKey(group.project.environmentId, group.project.id);
+                    return (
+                      <SortableProjectRow key={key} id={key}>
+                        <ActiveProjectGroup
+                          activeThreadId={activeThreadId}
+                          group={group}
+                          projectIsCurrent={key === activeProjectKey}
+                          onOpenProject={openProject}
+                          onOpenThread={openThread}
+                          onCloseProject={closeProject}
+                          onCloseThread={closeOneThread}
+                        />
+                      </SortableProjectRow>
+                    );
+                  })}
+                </SortableContext>
+              </DndContext>
+            )
+          ) : groups.inactive.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-zinc-500">aucun projet inactif</div>
           ) : (
             <DndContext
               collisionDetection={closestCenter}
-              onDragEnd={(event) => handleReorder(event, groups.active)}
+              onDragEnd={(event) => handleReorder(event, groups.inactive)}
               sensors={sensors}
             >
               <SortableContext
-                items={groups.active.map((group) =>
+                items={groups.inactive.map((group) =>
                   scopedProjectKey(group.project.environmentId, group.project.id),
                 )}
                 strategy={verticalListSortingStrategy}
               >
-                {groups.active.map((group) => {
+                {groups.inactive.map((group) => {
                   const key = scopedProjectKey(group.project.environmentId, group.project.id);
                   return (
                     <SortableProjectRow key={key} id={key}>
-                      <ActiveProjectGroup
-                        activeThreadId={activeThreadId}
+                      <InactiveProjectRow
+                        active={key === activeProjectKey}
                         group={group}
-                        projectIsCurrent={key === activeProjectKey}
-                        onOpenProject={openProject}
-                        onOpenThread={openThread}
-                        onCloseProject={closeProject}
-                        onCloseThread={closeOneThread}
+                        onOpen={openInactiveProject}
+                        onClose={closeProject}
                       />
                     </SortableProjectRow>
                   );
                 })}
               </SortableContext>
             </DndContext>
-          )
-        ) : groups.inactive.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-zinc-500">aucun projet inactif</div>
-        ) : (
-          <DndContext
-            collisionDetection={closestCenter}
-            onDragEnd={(event) => handleReorder(event, groups.inactive)}
-            sensors={sensors}
-          >
-            <SortableContext
-              items={groups.inactive.map((group) =>
-                scopedProjectKey(group.project.environmentId, group.project.id),
-              )}
-              strategy={verticalListSortingStrategy}
-            >
-              {groups.inactive.map((group) => {
-                const key = scopedProjectKey(group.project.environmentId, group.project.id);
-                return (
-                  <SortableProjectRow key={key} id={key}>
-                    <InactiveProjectRow
-                      active={key === activeProjectKey}
-                      group={group}
-                      onOpen={openProject}
-                      onClose={closeProject}
-                    />
-                  </SortableProjectRow>
-                );
-              })}
-            </SortableContext>
-          </DndContext>
-        )}
-      </div>
+          )}
+        </div>
 
-      <div className="flex shrink-0 flex-col gap-1 border-t border-zinc-900 p-2">
-        <button
-          className="flex items-center justify-center gap-1.5 rounded border border-zinc-800/60 bg-transparent px-2 py-1.5 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
-          onClick={() => openCommandPalette()}
-          title="Retrouver une conversation dans tous les projets"
-          type="button"
-        >
-          <History className="shrink-0" size={13} />
-          Sessions récentes
-        </button>
-        <button
-          className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
-          onClick={() => openCommandPalette({ open: "add-project" })}
-          type="button"
-        >
-          + New project
-        </button>
+        <div className="flex shrink-0 flex-col gap-1 border-t border-zinc-900 p-2">
+          <button
+            className="flex items-center justify-center gap-1.5 rounded border border-zinc-800/60 bg-transparent px-2 py-1.5 text-xs text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+            onClick={() => setRecentSessionsOpen(true)}
+            title="Retrouver une conversation dans tous les projets"
+            type="button"
+          >
+            <History className="shrink-0" size={13} />
+            Sessions récentes
+          </button>
+        </div>
       </div>
-    </div>
+      <RecentSessionsNavigator
+        open={recentSessionsOpen}
+        onClose={() => setRecentSessionsOpen(false)}
+        threads={threads}
+        projects={projects}
+        environmentIds={connectedEnvironmentIds}
+        onResume={resumeThread}
+        onFocusOpenThread={focusOpenThread}
+      />
+    </>
   );
 }

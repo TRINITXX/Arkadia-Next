@@ -55,6 +55,31 @@ export function resolveArkadiaDraftTabId(
   return null;
 }
 
+export function resolveArkadiaInactiveProjectOpenTarget(
+  drafts: Readonly<
+    Record<
+      string,
+      {
+        readonly environmentId: string;
+        readonly projectId: string;
+        readonly promotedTo?: unknown | null;
+      }
+    >
+  >,
+  environmentId: string,
+  projectId: string,
+): { readonly kind: "draft"; readonly draftId: string } | { readonly kind: "new-draft" } {
+  const draftId = resolveArkadiaDraftTabId(drafts, environmentId, projectId);
+  return draftId === null ? { kind: "new-draft" } : { kind: "draft", draftId };
+}
+
+export function prependArkadiaWorkspaceTabKey(
+  existingKeys: ReadonlyArray<string>,
+  newKey: string,
+): string[] {
+  return [newKey, ...existingKeys.filter((key) => key !== newKey)];
+}
+
 /** Stable identity of a tab across environments, used by the closed-tab store. */
 export function arkadiaWorkspaceTabKey(environmentId: string, threadId: string): string {
   return `${environmentId}:${threadId}`;

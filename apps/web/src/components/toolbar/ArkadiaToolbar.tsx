@@ -6,7 +6,6 @@ import {
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   SettingsIcon,
-  SquareTerminalIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ToolbarActionButton as ToolbarActionButtonModel } from "@t3tools/contracts";
@@ -30,10 +29,8 @@ import { sortedToolbarChildren } from "./toolbarFolderNav";
  */
 
 interface ArkadiaToolbarProps {
-  terminalAvailable: boolean;
   /** Whether the browser preview surface can be opened (desktop-only). */
   browserAvailable: boolean;
-  onOpenNewTerminal: () => void;
   /** Runs an action button's command — always in a brand-new terminal. */
   onRunAction: (command: string) => void;
   /** Opens the notepad right-panel surface and focuses it. */
@@ -43,9 +40,7 @@ interface ArkadiaToolbarProps {
 }
 
 export function ArkadiaToolbar({
-  terminalAvailable,
   browserAvailable,
-  onOpenNewTerminal,
   onRunAction,
   onOpenNotepad,
   onOpenBrowser,
@@ -94,17 +89,6 @@ export function ArkadiaToolbar({
         </ToolbarIconButton>
         <ToolbarIconButton label="Réglages" onClick={() => void navigate({ to: "/settings" })}>
           <SettingsIcon />
-        </ToolbarIconButton>
-        <ToolbarIconButton
-          label={
-            terminalAvailable
-              ? "Nouveau terminal"
-              : "Sélectionnez un projet pour ouvrir un terminal"
-          }
-          onClick={onOpenNewTerminal}
-          disabled={!terminalAvailable}
-        >
-          <SquareTerminalIcon />
         </ToolbarIconButton>
       </div>
     </div>

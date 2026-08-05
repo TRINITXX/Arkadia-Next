@@ -70,7 +70,6 @@ import { ComposerStashMenu } from "./ComposerStashMenu";
 import { ComposerShortcutBar } from "./ComposerShortcutBar";
 import { insertComposerShortcutCommand } from "./composerShortcutInsertion";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
-import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
 import { resolveShortcutCommand } from "../../keybindings";
 import {
@@ -2305,7 +2304,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       event.preventDefault();
       event.stopPropagation();
       if (
-        isCommandPaletteOpen() ||
         isComposerApprovalState ||
         pendingUserInputs.length > 0 ||
         projectSelectionRequired ||
@@ -2614,7 +2612,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (event.code !== "Space" || event.ctrlKey || event.metaKey || event.altKey) return;
-      if (isCommandPaletteOpen() || isComposerBusy() || !spaceBelongsToComposer()) return;
+      if (isComposerBusy() || !spaceBelongsToComposer()) return;
 
       const composerEmpty = promptRef.current.trim().length === 0;
 
