@@ -21,6 +21,7 @@ const decode = <S extends Schema.Top>(
 
 const decodeResolvedRule = Schema.decodeUnknownEffect(ResolvedKeybindingRule as never);
 const encodeResolvedKeybindings = Schema.encodeEffect(ResolvedKeybindingsConfig);
+const isKeybindingRule = Schema.is(KeybindingRule);
 
 it.effect("parses keybinding rules", () =>
   Effect.gen(function* () {
@@ -55,7 +56,7 @@ it.effect("parses keybinding rules", () =>
     assert.strictEqual(parsedDiffToggle.command, "diff.toggle");
 
     assert.isFalse(
-      Schema.is(KeybindingRule)({
+      isKeybindingRule({
         key: "mod+k",
         command: "commandPalette.toggle",
       }),
