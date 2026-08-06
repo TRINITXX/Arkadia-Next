@@ -47,6 +47,11 @@ import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { GitWorkflowService } from "../../git/GitWorkflowService.ts";
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
+const ContextWindowResetSource = Schema.Struct({
+  maxTokens: Schema.optional(Schema.Number),
+  compactsAutomatically: Schema.optional(Schema.Boolean),
+});
+const decodeContextWindowResetSource = Schema.decodeUnknownOption(ContextWindowResetSource);
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -56,6 +61,7 @@ type ProviderIntentEvent = Extract<
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
       | "thread.turn-interrupt-requested"
+      | "thread.turn-cancel-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
       | "thread.session-stop-requested";
@@ -405,6 +411,48 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
+
+  const appendContextWindowReset = Effect.fn("appendContextWindowReset")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly activities: ReadonlyArray<{
+      readonly kind: string;
+      readonly payload: unknown;
+    }>;
+    readonly createdAt: string;
+  }) {
+    const latestContextActivity = input.activities.findLast(
+      (activity) => activity.kind === "context-window.updated",
+    );
+    const resetSource = Option.getOrUndefined(
+      decodeContextWindowResetSource(latestContextActivity?.payload),
+    );
+    const { commandId, eventId } = yield* Effect.all({
+      commandId: serverCommandId("context-window-reset"),
+      eventId: serverEventId(),
+    });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.activity.append",
+      commandId,
+      threadId: input.threadId,
+      activity: {
+        id: eventId,
+        tone: "info",
+        kind: "context-window.updated",
+        summary: "Context window reset",
+        payload: {
+          usedTokens: 0,
+          lastUsedTokens: 0,
+          ...(resetSource?.maxTokens !== undefined ? { maxTokens: resetSource.maxTokens } : {}),
+          ...(resetSource?.compactsAutomatically !== undefined
+            ? { compactsAutomatically: resetSource.compactsAutomatically }
+            : {}),
+        },
+        turnId: null,
+        createdAt: input.createdAt,
+      },
+      createdAt: input.createdAt,
+    });
+  });
 
   const setThreadSessionErrorOnTurnStartFailure = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
@@ -1207,6 +1255,51 @@ const make = Effect.gen(function* () {
     yield* providerService.interruptTurn({ threadId: event.payload.threadId });
   });
 
+  const processTurnCancelRequested = Effect.fn("processTurnCancelRequested")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.turn-cancel-requested" }>,
+  ) {
+    const thread = yield* resolveThread(event.payload.threadId);
+    if (!thread) {
+      return;
+    }
+
+    if (thread.session && thread.session.status !== "stopped") {
+      yield* providerService.stopSession({
+        threadId: thread.id,
+        discardResumeCursor: true,
+      });
+    }
+
+    yield* setThreadSession({
+      threadId: thread.id,
+      session: {
+        threadId: thread.id,
+        status: "stopped",
+        providerName: thread.session?.providerName ?? null,
+        ...(thread.session?.providerInstanceId !== undefined
+          ? { providerInstanceId: thread.session.providerInstanceId }
+          : {}),
+        runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+        activeTurnId: null,
+        lastError: thread.session?.lastError ?? null,
+        updatedAt: event.payload.createdAt,
+      },
+      createdAt: event.payload.createdAt,
+    });
+
+    const retainedTurnCount = thread.checkpoints.reduce(
+      (latest, checkpoint) => Math.max(latest, checkpoint.checkpointTurnCount),
+      0,
+    );
+    yield* orchestrationEngine.dispatch({
+      type: "thread.revert.complete",
+      commandId: yield* serverCommandId("turn-cancel-complete"),
+      threadId: thread.id,
+      turnCount: retainedTurnCount,
+      createdAt: event.payload.createdAt,
+    });
+  });
+
   const processApprovalResponseRequested = Effect.fn("processApprovalResponseRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.approval-response-requested" }>,
   ) {
@@ -1304,9 +1397,40 @@ const make = Effect.gen(function* () {
     }
 
     const now = event.payload.createdAt;
-    if (thread.session && thread.session.status !== "stopped") {
-      yield* providerService.stopSession({ threadId: thread.id });
+    if (
+      thread.session &&
+      (thread.session.status !== "stopped" || event.payload.discardResumeCursor === true)
+    ) {
+      const stopped = yield* providerService
+        .stopSession({
+          threadId: thread.id,
+          ...(event.payload.discardResumeCursor !== undefined
+            ? { discardResumeCursor: event.payload.discardResumeCursor }
+            : {}),
+        })
+        .pipe(
+          Effect.as(true),
+          Effect.catchCause((cause) =>
+            appendProviderFailureActivity({
+              threadId: thread.id,
+              kind: "provider.session.stop.failed",
+              summary: "Provider session stop failed",
+              detail: Cause.pretty(cause),
+              turnId: null,
+              createdAt: now,
+            }).pipe(Effect.as(false)),
+          ),
+        );
+      if (!stopped) {
+        return;
+      }
     }
+
+    yield* appendContextWindowReset({
+      threadId: thread.id,
+      activities: thread.activities,
+      createdAt: now,
+    });
 
     yield* setThreadSession({
       threadId: thread.id,
@@ -1360,6 +1484,9 @@ const make = Effect.gen(function* () {
       case "thread.turn-interrupt-requested":
         yield* processTurnInterruptRequested(event);
         return;
+      case "thread.turn-cancel-requested":
+        yield* processTurnCancelRequested(event);
+        return;
       case "thread.approval-response-requested":
         yield* processApprovalResponseRequested(event);
         return;
@@ -1405,6 +1532,7 @@ const make = Effect.gen(function* () {
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
+        event.type === "thread.turn-cancel-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
         event.type === "thread.session-stop-requested"

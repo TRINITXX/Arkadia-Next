@@ -268,6 +268,17 @@ export function resolveArkadiaTabAfterClose(
   return tabIds[closingIndex + 1] ?? tabIds[closingIndex - 1] ?? null;
 }
 
+export function resolveArkadiaWorkspaceTabAfterClose(
+  tabs: ReadonlyArray<ArkadiaWorkspaceTabItem>,
+  closingKey: string,
+): ArkadiaWorkspaceTabItem | null {
+  const fallbackKey = resolveArkadiaTabAfterClose(
+    tabs.map((tab) => tab.key),
+    closingKey,
+  );
+  return fallbackKey === null ? null : (tabs.find((tab) => tab.key === fallbackKey) ?? null);
+}
+
 export function canCloseArkadiaDraftTab(
   tabs: ReadonlyArray<ArkadiaWorkspaceTabItem>,
   draftKey: string,

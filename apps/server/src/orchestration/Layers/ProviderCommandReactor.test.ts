@@ -2896,9 +2896,59 @@ describe("ProviderCommandReactor", () => {
     expect(resolvedActivity).toBeUndefined();
   });
 
+  it("cancels a pending first turn without retaining its message or reverting files", async () => {
+    const harness = await createHarness();
+    const startedAt = "2026-01-01T00:00:00.000Z";
+    const cancelledAt = "2026-01-01T00:00:01.000Z";
+    const threadId = ThreadId.make("thread-1");
+    const messageId = asMessageId("user-message-cancelled-before-response");
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-before-cancel"),
+        threadId,
+        message: {
+          messageId,
+          role: "user",
+          text: "mistyped first prompt",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: startedAt,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.cancel",
+        commandId: CommandId.make("cmd-turn-cancel-before-response"),
+        threadId,
+        messageId,
+        createdAt: cancelledAt,
+      }),
+    );
+
+    await harness.drain();
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+
+    expect(harness.stopSession.mock.calls.length).toBe(1);
+    expect(harness.stopSession.mock.calls[0]?.[0]).toEqual({
+      threadId,
+      discardResumeCursor: true,
+    });
+    expect(thread?.session?.status).toBe("stopped");
+    expect(thread?.messages).toEqual([]);
+    expect(thread?.latestTurn).toBeNull();
+  });
+
   it("reacts to thread.session.stop by stopping provider session and clearing thread session state", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
+    const priorContextAt = "2025-12-31T23:59:59.000Z";
 
     await harness.runEffect(
       harness.engine.dispatch({
@@ -2921,14 +2971,42 @@ describe("ProviderCommandReactor", () => {
 
     await harness.runEffect(
       harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-context-before-stop"),
+        threadId: ThreadId.make("thread-1"),
+        activity: {
+          id: EventId.make("activity-context-before-stop"),
+          tone: "info",
+          kind: "context-window.updated",
+          summary: "Context window updated",
+          payload: {
+            usedTokens: 164_066,
+            maxTokens: 1_000_000,
+            compactsAutomatically: true,
+          },
+          turnId: null,
+          createdAt: priorContextAt,
+        },
+        createdAt: priorContextAt,
+      }),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
         type: "thread.session.stop",
         commandId: CommandId.make("cmd-session-stop"),
         threadId: ThreadId.make("thread-1"),
+        discardResumeCursor: true,
         createdAt: now,
       }),
     );
 
-    await waitFor(() => harness.stopSession.mock.calls.length === 1);
+    await harness.drain();
+    expect(harness.stopSession.mock.calls.length).toBe(1);
+    expect(harness.stopSession.mock.calls[0]?.[0]).toEqual({
+      threadId: ThreadId.make("thread-1"),
+      discardResumeCursor: true,
+    });
     const readModel = await harness.readModel();
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.session).not.toBeNull();
@@ -2936,5 +3014,92 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.providerInstanceId).toBe(ProviderInstanceId.make("codex_work"));
     expect(thread?.session?.activeTurnId).toBeNull();
+    const latestContextActivity = thread?.activities.findLast(
+      (activity) => activity.kind === "context-window.updated",
+    );
+    expect(latestContextActivity?.payload).toEqual({
+      usedTokens: 0,
+      lastUsedTokens: 0,
+      maxTokens: 1_000_000,
+      compactsAutomatically: true,
+    });
+  });
+
+  it("keeps the existing context when clearing the provider session fails", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const priorContextAt = "2025-12-31T23:59:59.000Z";
+    harness.stopSession.mockImplementation(
+      () =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: ProviderDriverKind.make("codex"),
+            method: "stopSession",
+            detail: "simulated clear failure",
+          }),
+        ) as never,
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-for-failed-clear"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex_work"),
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: priorContextAt,
+        },
+        createdAt: priorContextAt,
+      }),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-context-before-failed-clear"),
+        threadId: ThreadId.make("thread-1"),
+        activity: {
+          id: EventId.make("activity-context-before-failed-clear"),
+          tone: "info",
+          kind: "context-window.updated",
+          summary: "Context window updated",
+          payload: {
+            usedTokens: 164_066,
+            maxTokens: 1_000_000,
+            compactsAutomatically: true,
+          },
+          turnId: null,
+          createdAt: priorContextAt,
+        },
+        createdAt: priorContextAt,
+      }),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.session.stop",
+        commandId: CommandId.make("cmd-session-failed-clear"),
+        threadId: ThreadId.make("thread-1"),
+        discardResumeCursor: true,
+        createdAt: now,
+      }),
+    );
+
+    await harness.drain();
+    const readModel = await harness.readModel();
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    expect(thread?.session?.status).toBe("ready");
+    expect(
+      thread?.activities.filter((activity) => activity.kind === "context-window.updated"),
+    ).toHaveLength(1);
+    expect(
+      thread?.activities.find((activity) => activity.kind === "provider.session.stop.failed"),
+    ).toBeDefined();
   });
 });

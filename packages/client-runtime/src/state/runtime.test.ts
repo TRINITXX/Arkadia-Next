@@ -299,6 +299,34 @@ describe("executeAtomQuery", () => {
 });
 
 describe("runtime command runner", () => {
+  it.effect("interrupts an in-flight command when its execution signal aborts", () => {
+    const runtime = Atom.runtime(Layer.empty);
+    let finalized = false;
+    const command = createRuntimeCommand(runtime, {
+      label: "test.abort-command",
+      execute: () =>
+        Effect.never.pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              finalized = true;
+            }),
+          ),
+        ),
+    });
+    const registry = AtomRegistry.make();
+    const controller = new AbortController();
+
+    return Effect.gen(function* () {
+      const result = command.run(registry, undefined, { signal: controller.signal });
+      yield* Effect.yieldNow;
+      controller.abort();
+      yield* Effect.yieldNow;
+
+      expect(finalized).toBe(true);
+      expect(isAtomCommandInterrupted(yield* Effect.promise(() => result))).toBe(true);
+    }).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())));
+  });
+
   it("encodes custom command rejections as defects", async () => {
     const defect = new Error("custom command rejected");
     const registry = AtomRegistry.make();

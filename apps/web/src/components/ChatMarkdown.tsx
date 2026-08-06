@@ -606,6 +606,9 @@ function MarkdownCodeBlock({
             theme={theme}
           />
         </span>
+      </div>
+      {children}
+      <div className="chat-markdown-codeblock-footer select-none">
         <span className="flex items-center gap-0.5" role="toolbar" aria-label="Code block actions">
           <Tooltip>
             <TooltipTrigger
@@ -644,7 +647,6 @@ function MarkdownCodeBlock({
           </Tooltip>
         </span>
       </div>
-      {children}
     </div>
   );
 }

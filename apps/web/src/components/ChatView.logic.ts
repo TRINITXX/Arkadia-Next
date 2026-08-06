@@ -486,6 +486,45 @@ export interface LocalDispatchSnapshot {
   sessionUpdatedAt: string | null;
 }
 
+export interface SendCancellationState {
+  readonly messageId: ChatMessage["id"];
+  readonly cancelled: boolean;
+  readonly restored: boolean;
+  readonly turnStartDispatched: boolean;
+}
+
+export function createSendCancellationState(messageId: ChatMessage["id"]): SendCancellationState {
+  return {
+    messageId,
+    cancelled: false,
+    restored: false,
+    turnStartDispatched: false,
+  };
+}
+
+export function markSendTurnStartDispatched(state: SendCancellationState): SendCancellationState {
+  return state.turnStartDispatched ? state : { ...state, turnStartDispatched: true };
+}
+
+export function cancelSend(state: SendCancellationState): {
+  readonly state: SendCancellationState;
+  readonly shouldRestoreComposer: boolean;
+  readonly shouldCancelServerTurn: boolean;
+} {
+  if (state.cancelled) {
+    return {
+      state,
+      shouldRestoreComposer: false,
+      shouldCancelServerTurn: false,
+    };
+  }
+  return {
+    state: { ...state, cancelled: true, restored: true },
+    shouldRestoreComposer: !state.restored,
+    shouldCancelServerTurn: state.turnStartDispatched,
+  };
+}
+
 export function createLocalDispatchSnapshot(
   activeThread: Thread | undefined,
   options?: { preparingWorktree?: boolean },

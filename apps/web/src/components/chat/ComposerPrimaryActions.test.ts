@@ -11,6 +11,17 @@ describe("shouldShowComposerStopAction", () => {
       shouldShowComposerStopAction({
         isConnecting: true,
         isRunning: false,
+        isSendBusy: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("shows stop as soon as a local send starts", () => {
+    expect(
+      shouldShowComposerStopAction({
+        isConnecting: false,
+        isRunning: false,
+        isSendBusy: true,
       }),
     ).toBe(true);
   });
@@ -20,6 +31,7 @@ describe("shouldShowComposerStopAction", () => {
       shouldShowComposerStopAction({
         isConnecting: false,
         isRunning: false,
+        isSendBusy: false,
       }),
     ).toBe(false);
   });

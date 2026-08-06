@@ -238,16 +238,20 @@ import {
   buildLocalDraftThread,
   buildLoadingThreadFromShell,
   buildThreadTurnInterruptInput,
+  cancelSend,
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
+  createSendCancellationState,
   deriveComposerSendState,
   dismissBranchMismatchForSession,
   hasServerAcknowledgedLocalDispatch,
   isChatViewWorking,
   isBranchMismatchDismissedForSession,
+  markSendTurnStartDispatched,
   shouldShowBranchMismatchBanner,
   getStartedThreadModelChangeBlockReason,
   type LocalDispatchSnapshot,
+  type SendCancellationState,
   PullRequestDialogState,
   cloneComposerImageForRetry,
   deriveLockedProvider,
@@ -469,6 +473,12 @@ interface TerminalLaunchContext {
   threadId: ThreadId;
   cwd: string;
   worktreePath: string | null;
+}
+
+interface ActiveSendCancellation {
+  state: SendCancellationState;
+  readonly abortController: AbortController;
+  readonly restoreComposer: () => void;
 }
 
 type PersistentTerminalLaunchContext = Pick<TerminalLaunchContext, "cwd" | "worktreePath">;
@@ -1169,6 +1179,12 @@ function ChatViewContent(props: ChatViewProps) {
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
   });
+  const cancelThreadTurn = useAtomCommand(threadEnvironment.cancelTurn, {
+    reportFailure: false,
+  });
+  const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
+    reportFailure: false,
+  });
   const respondToThreadApproval = useAtomCommand(threadEnvironment.respondToApproval, {
     reportFailure: false,
   });
@@ -1275,6 +1291,7 @@ function ChatViewContent(props: ChatViewProps) {
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
   optimisticUserMessagesRef.current = optimisticUserMessages;
+  const activeSendCancellationRef = useRef<ActiveSendCancellation | null>(null);
   const [localDraftErrorsByDraftId, setLocalDraftErrorsByDraftId] = useState<
     Record<string, LocalThreadErrorEntry>
   >({});
@@ -2120,6 +2137,11 @@ function ChatViewContent(props: ChatViewProps) {
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError,
   });
+  useEffect(() => {
+    if (!isSendBusy && activeSendCancellationRef.current?.state.cancelled === false) {
+      activeSendCancellationRef.current = null;
+    }
+  }, [isSendBusy]);
   const isWorking = isChatViewWorking({
     isConnecting,
     isRevertingCheckpoint,
@@ -4491,6 +4513,42 @@ function ChatViewContent(props: ChatViewProps) {
         ? parseStandaloneComposerSlashCommand(trimmed)
         : null;
     if (standaloneSlashCommand) {
+      if (standaloneSlashCommand === "clear") {
+        if (isServerThread) {
+          sendInFlightRef.current = true;
+          const clearResult = await stopThreadSession({
+            environmentId,
+            input: {
+              threadId: activeThread.id,
+              discardResumeCursor: true,
+            },
+          });
+          sendInFlightRef.current = false;
+          if (clearResult._tag === "Failure") {
+            if (!isAtomCommandInterrupted(clearResult)) {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Could not clear context",
+                  description: chatActionErrorMessage(squashAtomCommandFailure(clearResult)),
+                }),
+              );
+            }
+            return;
+          }
+        }
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        composerRef.current?.resetCursorState();
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: "Clearing context",
+            description: "The provider session is being reset.",
+          }),
+        );
+        return;
+      }
       handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
@@ -4645,6 +4703,66 @@ function ChatViewContent(props: ChatViewProps) {
     clearComposerDraftContent(composerDraftTarget);
     composerRef.current?.resetCursorState();
 
+    let composerSnapshotRestored = false;
+    const restoreComposerSnapshot = () => {
+      if (composerSnapshotRestored) {
+        return;
+      }
+      composerSnapshotRestored = true;
+      setOptimisticUserMessages((existing) => {
+        const removed = existing.filter((message) => message.id === messageIdForSend);
+        for (const message of removed) {
+          revokeUserMessagePreviewUrls(message);
+        }
+        const next = existing.filter((message) => message.id !== messageIdForSend);
+        return next.length === existing.length ? existing : next;
+      });
+      const composerIsEmpty =
+        promptRef.current.length === 0 &&
+        composerImagesRef.current.length === 0 &&
+        composerTerminalContextsRef.current.length === 0 &&
+        composerElementContextsRef.current.length === 0 &&
+        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.previewAnnotations
+          .length ?? 0) === 0 &&
+        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.reviewComments
+          .length ?? 0) === 0;
+      if (!composerIsEmpty) {
+        const currentPrompt = promptRef.current;
+        const restoredPrompt = currentPrompt.length
+          ? `${promptForSend}\n\n${currentPrompt}`
+          : promptForSend;
+        promptRef.current = restoredPrompt;
+        setComposerDraftPrompt(composerDraftTarget, restoredPrompt);
+        composerRef.current?.resetCursorState({
+          cursor: collapseExpandedComposerCursor(restoredPrompt, restoredPrompt.length),
+          prompt: restoredPrompt,
+          detectTrigger: true,
+        });
+        return;
+      }
+      promptRef.current = promptForSend;
+      const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
+      composerImagesRef.current = retryComposerImages;
+      composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
+      composerElementContextsRef.current = composerElementContextsSnapshot;
+      setComposerDraftPrompt(composerDraftTarget, promptForSend);
+      addComposerDraftImages(composerDraftTarget, retryComposerImages);
+      setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
+      setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
+      setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
+      setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
+      composerRef.current?.resetCursorState({
+        cursor: collapseExpandedComposerCursor(promptForSend, promptForSend.length),
+        prompt: promptForSend,
+        detectTrigger: true,
+      });
+    };
+    activeSendCancellationRef.current = {
+      state: createSendCancellationState(messageIdForSend),
+      abortController: new AbortController(),
+      restoreComposer: restoreComposerSnapshot,
+    };
+
     let firstComposerImageName: string | null = null;
     if (composerImagesSnapshot.length > 0) {
       const firstComposerImage = composerImagesSnapshot[0];
@@ -4708,7 +4826,15 @@ function ChatViewContent(props: ChatViewProps) {
     }
 
     let turnStartSucceeded = false;
-    if (failure === null && turnAttachmentsResult._tag === "Success") {
+    const cancellationBeforeTurnStart = activeSendCancellationRef.current;
+    const sendWasCancelledBeforeTurnStart =
+      cancellationBeforeTurnStart?.state.messageId === messageIdForSend &&
+      cancellationBeforeTurnStart.state.cancelled;
+    if (
+      failure === null &&
+      turnAttachmentsResult._tag === "Success" &&
+      !sendWasCancelledBeforeTurnStart
+    ) {
       const bootstrap =
         isLocalDraftThread || baseBranchForWorktree
           ? {
@@ -4740,67 +4866,64 @@ function ChatViewContent(props: ChatViewProps) {
             }
           : undefined;
       beginLocalDispatch({ preparingWorktree: false });
-      const startResult = await startThreadTurn({
-        environmentId,
-        input: {
-          threadId: threadIdForSend,
-          message: {
-            messageId: messageIdForSend,
-            role: "user",
-            text: outgoingMessageText,
-            attachments: turnAttachmentsResult.value,
+      const activeCancellation = activeSendCancellationRef.current;
+      if (activeCancellation?.state.messageId === messageIdForSend) {
+        activeCancellation.state = markSendTurnStartDispatched(activeCancellation.state);
+      }
+      const startResult = await startThreadTurn(
+        {
+          environmentId,
+          input: {
+            threadId: threadIdForSend,
+            message: {
+              messageId: messageIdForSend,
+              role: "user",
+              text: outgoingMessageText,
+              attachments: turnAttachmentsResult.value,
+            },
+            modelSelection: ctxSelectedModelSelection,
+            titleSeed: title,
+            runtimeMode,
+            interactionMode,
+            ...(bootstrap ? { bootstrap } : {}),
+            createdAt: messageCreatedAt,
           },
-          modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
-          runtimeMode,
-          interactionMode,
-          ...(bootstrap ? { bootstrap } : {}),
-          createdAt: messageCreatedAt,
         },
-      });
+        activeCancellation ? { signal: activeCancellation.abortController.signal } : undefined,
+      );
+      const cancellationAfterTurnStart = activeSendCancellationRef.current;
+      const sendWasCancelledAfterDispatch =
+        cancellationAfterTurnStart?.state.messageId === messageIdForSend &&
+        cancellationAfterTurnStart.state.cancelled;
+      if (sendWasCancelledAfterDispatch) {
+        const cancelResult = await cancelThreadTurn({
+          environmentId,
+          input: {
+            threadId: threadIdForSend,
+            messageId: messageIdForSend,
+          },
+        });
+        if (
+          startResult._tag === "Success" &&
+          cancelResult._tag === "Failure" &&
+          !isAtomCommandInterrupted(cancelResult)
+        ) {
+          const error = squashAtomCommandFailure(cancelResult);
+          setThreadError(
+            threadIdForSend,
+            error instanceof Error ? error.message : "Failed to cancel the current turn.",
+          );
+        }
+      }
       if (startResult._tag === "Failure") {
         failure = startResult;
-      } else {
+      } else if (!sendWasCancelledAfterDispatch) {
         turnStartSucceeded = true;
       }
     }
 
     if (failure !== null) {
-      if (
-        promptRef.current.length === 0 &&
-        composerImagesRef.current.length === 0 &&
-        composerTerminalContextsRef.current.length === 0 &&
-        composerElementContextsRef.current.length === 0 &&
-        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.previewAnnotations
-          .length ?? 0) === 0 &&
-        (useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.reviewComments
-          .length ?? 0) === 0
-      ) {
-        setOptimisticUserMessages((existing) => {
-          const removed = existing.filter((message) => message.id === messageIdForSend);
-          for (const message of removed) {
-            revokeUserMessagePreviewUrls(message);
-          }
-          const next = existing.filter((message) => message.id !== messageIdForSend);
-          return next.length === existing.length ? existing : next;
-        });
-        promptRef.current = promptForSend;
-        const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
-        composerImagesRef.current = retryComposerImages;
-        composerTerminalContextsRef.current = composerTerminalContextsSnapshot;
-        composerElementContextsRef.current = composerElementContextsSnapshot;
-        setComposerDraftPrompt(composerDraftTarget, promptForSend);
-        addComposerDraftImages(composerDraftTarget, retryComposerImages);
-        setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
-        setComposerDraftElementContexts(composerDraftTarget, composerElementContextsSnapshot);
-        setComposerDraftPreviewAnnotations(composerDraftTarget, composerPreviewAnnotationsSnapshot);
-        setComposerDraftReviewComments(composerDraftTarget, composerReviewCommentsSnapshot);
-        composerRef.current?.resetCursorState({
-          cursor: collapseExpandedComposerCursor(promptForSend, promptForSend.length),
-          prompt: promptForSend,
-          detectTrigger: true,
-        });
-      }
+      restoreComposerSnapshot();
       if (!isAtomCommandInterrupted(failure)) {
         const error = squashAtomCommandFailure(failure);
         setThreadError(
@@ -4816,10 +4939,45 @@ function ChatViewContent(props: ChatViewProps) {
       );
       resetLocalDispatch();
     }
+    if (activeSendCancellationRef.current?.state.messageId === messageIdForSend) {
+      activeSendCancellationRef.current = turnStartSucceeded
+        ? activeSendCancellationRef.current
+        : null;
+    }
   };
 
   const onInterrupt = async () => {
     if (!activeThread) return;
+    const activeSendCancellation = activeSendCancellationRef.current;
+    if (activeSendCancellation) {
+      const cancellation = cancelSend(activeSendCancellation.state);
+      activeSendCancellation.state = cancellation.state;
+      if (cancellation.shouldRestoreComposer) {
+        activeSendCancellation.abortController.abort();
+        activeSendCancellation.restoreComposer();
+        resetLocalDispatch();
+      }
+      if (cancellation.shouldCancelServerTurn && !sendInFlightRef.current) {
+        const cancelResult = await cancelThreadTurn({
+          environmentId,
+          input: {
+            threadId: activeThread.id,
+            messageId: activeSendCancellation.state.messageId,
+          },
+        });
+        if (cancelResult._tag === "Failure" && !isAtomCommandInterrupted(cancelResult)) {
+          const error = squashAtomCommandFailure(cancelResult);
+          setThreadError(
+            activeThread.id,
+            error instanceof Error ? error.message : "Failed to cancel the current turn.",
+          );
+        }
+        if (activeSendCancellationRef.current === activeSendCancellation) {
+          activeSendCancellationRef.current = null;
+        }
+      }
+      return;
+    }
     const result = await interruptThreadTurn({
       environmentId,
       input: buildThreadTurnInterruptInput(activeThread),

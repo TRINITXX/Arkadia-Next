@@ -30,6 +30,62 @@ import {
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
+import * as chatViewLogic from "./ChatView.logic";
+
+type SendCancellationState = {
+  readonly messageId: MessageId;
+  readonly cancelled: boolean;
+  readonly restored: boolean;
+  readonly turnStartDispatched: boolean;
+};
+
+type SendCancellationResult = {
+  readonly state: SendCancellationState;
+  readonly shouldRestoreComposer: boolean;
+  readonly shouldCancelServerTurn: boolean;
+};
+
+function cancellationFunctions() {
+  const create = Reflect.get(chatViewLogic, "createSendCancellationState") as unknown;
+  const markDispatched = Reflect.get(chatViewLogic, "markSendTurnStartDispatched") as unknown;
+  const cancel = Reflect.get(chatViewLogic, "cancelSend") as unknown;
+  expect(typeof create).toBe("function");
+  expect(typeof markDispatched).toBe("function");
+  expect(typeof cancel).toBe("function");
+  return {
+    create: create as (messageId: MessageId) => SendCancellationState,
+    markDispatched: markDispatched as (state: SendCancellationState) => SendCancellationState,
+    cancel: cancel as (state: SendCancellationState) => SendCancellationResult,
+  };
+}
+
+describe("send cancellation", () => {
+  it("restores locally without contacting the server before turn dispatch", () => {
+    const functions = cancellationFunctions();
+    const initial = functions.create(MessageId.make("message-local-cancel"));
+
+    const result = functions.cancel(initial);
+
+    expect(result.shouldRestoreComposer).toBe(true);
+    expect(result.shouldCancelServerTurn).toBe(false);
+    expect(result.state.cancelled).toBe(true);
+  });
+
+  it("requests one server cancellation after turn dispatch", () => {
+    const functions = cancellationFunctions();
+    const dispatched = functions.markDispatched(
+      functions.create(MessageId.make("message-server-cancel")),
+    );
+
+    const first = functions.cancel(dispatched);
+    const duplicate = functions.cancel(first.state);
+
+    expect(first.shouldRestoreComposer).toBe(true);
+    expect(first.shouldCancelServerTurn).toBe(true);
+    expect(duplicate.shouldRestoreComposer).toBe(false);
+    expect(duplicate.shouldCancelServerTurn).toBe(false);
+  });
+});
 
 describe("isChatViewWorking", () => {
   it("keeps the working state visible while a new session is starting", () => {

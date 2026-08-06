@@ -93,6 +93,7 @@ export type ProviderInterruptTurnInput = typeof ProviderInterruptTurnInput.Type;
 
 export const ProviderStopSessionInput = Schema.Struct({
   threadId: ThreadId,
+  discardResumeCursor: Schema.optional(Schema.Boolean),
 });
 export type ProviderStopSessionInput = typeof ProviderStopSessionInput.Type;
 

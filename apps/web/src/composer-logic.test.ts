@@ -368,6 +368,10 @@ describe("parseStandaloneComposerSlashCommand", () => {
     expect(parseStandaloneComposerSlashCommand("/default")).toBe("default");
   });
 
+  it("parses standalone /clear command instead of sending it to the provider", () => {
+    expect(parseStandaloneComposerSlashCommand(" /clear ")).toBe("clear");
+  });
+
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
   });

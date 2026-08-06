@@ -1047,6 +1047,58 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("discards the persisted resume cursor when clearing a session", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const runtimeRepository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+
+      const initial = yield* provider.startSession(asThreadId("thread-clear-context"), {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-clear-context"),
+        cwd: "/tmp/project-clear-context",
+        runtimeMode: "full-access",
+      });
+
+      yield* provider.stopSession({
+        threadId: initial.threadId,
+        discardResumeCursor: true,
+      });
+
+      const persistedAfterClear = yield* runtimeRepository.getByThreadId({
+        threadId: initial.threadId,
+      });
+      assert.equal(Option.isSome(persistedAfterClear), true);
+      if (Option.isSome(persistedAfterClear)) {
+        assert.equal(persistedAfterClear.value.resumeCursor, null);
+      }
+
+      routing.codex.startSession.mockClear();
+      routing.codex.sendTurn.mockClear();
+
+      yield* provider.startSession(initial.threadId, {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId: initial.threadId,
+        cwd: "/tmp/project-clear-context",
+        runtimeMode: "full-access",
+      });
+
+      yield* provider.sendTurn({
+        threadId: initial.threadId,
+        input: "start fresh after clear",
+        attachments: [],
+      });
+
+      const freshStartInput = routing.codex.startSession.mock.calls[0]?.[0];
+      assert.equal(typeof freshStartInput === "object" && freshStartInput !== null, true);
+      if (freshStartInput && typeof freshStartInput === "object") {
+        assert.equal(freshStartInput.resumeCursor, undefined);
+      }
+      assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
   it.effect("routes explicit claudeAgent provider session starts to the claude adapter", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

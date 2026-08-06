@@ -81,6 +81,29 @@ describe("contextWindow", () => {
     });
   });
 
+  it("prefers a newer unsequenced reset over an older sequenced update", () => {
+    const reset = {
+      ...makeActivity("activity-reset", "context-window.updated", {
+        usedTokens: 0,
+        maxTokens: 1_000_000,
+      }),
+      turnId: null,
+      createdAt: "2026-03-23T00:01:00.000Z",
+    } satisfies OrchestrationThreadActivity;
+    const olderSequencedUpdate = {
+      ...makeActivity("activity-old", "context-window.updated", {
+        usedTokens: 164_066,
+        maxTokens: 1_000_000,
+      }),
+      sequence: 42,
+      createdAt: "2026-03-23T00:00:00.000Z",
+    } satisfies OrchestrationThreadActivity;
+
+    const snapshot = deriveLatestContextWindowSnapshot([reset, olderSequencedUpdate]);
+
+    expect(snapshot?.usedTokens).toBe(0);
+  });
+
   it("formats compact token counts", () => {
     expect(formatContextWindowTokens(999)).toBe("999");
     expect(formatContextWindowTokens(1400)).toBe("1.4k");

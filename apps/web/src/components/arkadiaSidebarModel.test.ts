@@ -17,6 +17,7 @@ import {
   resolveArkadiaInactiveProjectOpenTarget,
   resolveArkadiaProjectOpenTab,
   requestArkadiaInactiveProjectDeletion,
+  resolveArkadiaWorkspaceTabAfterClose,
   resolveArkadiaThreadIndicator,
   shortenArkadiaProjectPath,
 } from "./arkadiaSidebarModel";
@@ -704,6 +705,23 @@ describe("Arkadia workspace tabs", () => {
     expect(resolveArkadiaTabAfterClose(["first", "current", "last"], "current")).toBe("last");
     expect(resolveArkadiaTabAfterClose(["first", "last"], "last")).toBe("first");
     expect(resolveArkadiaTabAfterClose(["only"], "only")).toBeNull();
+  });
+
+  it("returns a neighboring terminal when a conversation closes in a mixed tab list", () => {
+    const conversation = {
+      kind: "thread",
+      key: "local:conversation",
+      thread: thread("conversation", "alpha"),
+    } as const;
+    const terminal = {
+      kind: "terminal",
+      key: "terminal:terminal-1",
+      terminalId: "terminal-1",
+    } as const;
+
+    expect(
+      resolveArkadiaWorkspaceTabAfterClose([conversation, terminal], conversation.key),
+    ).toEqual(terminal);
   });
 });
 

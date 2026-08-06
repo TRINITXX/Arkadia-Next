@@ -40,7 +40,7 @@ import {
   closeArkadiaDraftTab,
   handleArkadiaWorkspaceTabMouseDown,
   prependArkadiaWorkspaceTabKey,
-  resolveArkadiaTabAfterClose,
+  resolveArkadiaWorkspaceTabAfterClose,
   resolveArkadiaThreadIndicator,
   type ArkadiaWorkspaceTabItem,
 } from "./arkadiaSidebarModel";
@@ -231,11 +231,6 @@ export default function ArkadiaWorkspaceTabs({
       threads,
     ],
   );
-  const tabs = useMemo(
-    () => orderedTabItems.flatMap((item) => (item.kind === "thread" ? [item.thread] : [])),
-    [orderedTabItems],
-  );
-
   useEffect(() => {
     const activeKey = activeThreadId
       ? arkadiaWorkspaceTabKey(environmentId, activeThreadId)
@@ -286,6 +281,32 @@ export default function ArkadiaWorkspaceTabs({
     [router],
   );
 
+  const openTerminalTab = useCallback(
+    (terminalId: string) => {
+      void router.navigate({
+        to: "/$environmentId/project/$projectId/terminal/$terminalId",
+        params: { environmentId, projectId, terminalId },
+      });
+    },
+    [environmentId, projectId, router],
+  );
+
+  const openWorkspaceTab = useCallback(
+    (item: ArkadiaWorkspaceTabItem) => {
+      if (item.kind === "thread") {
+        openThread(item.thread);
+        return;
+      }
+      if (item.kind === "draft") {
+        const draft = visibleDrafts.find((candidate) => String(candidate.draftId) === item.draftId);
+        if (draft) openDraft(draft);
+        return;
+      }
+      openTerminalTab(item.terminalId);
+    },
+    [openDraft, openTerminalTab, openThread, visibleDrafts],
+  );
+
   const clearDraftThread = useComposerDraftStore((store) => store.clearDraftThread);
 
   // Closing a tab always closes it, whatever the agent is doing: the tab
@@ -313,18 +334,12 @@ export default function ArkadiaWorkspaceTabs({
 
       if (thread.id !== activeThreadId) return;
 
-      const fallbackId = resolveArkadiaTabAfterClose(
-        tabs.map((item) => item.id),
-        thread.id,
+      const fallback = resolveArkadiaWorkspaceTabAfterClose(
+        orderedTabItems,
+        arkadiaWorkspaceTabKey(thread.environmentId, thread.id),
       );
-      const fallback = fallbackId ? tabs.find((item) => item.id === fallbackId) : null;
       if (fallback) {
-        openThread(fallback);
-        return;
-      }
-      const fallbackDraft = visibleDrafts[visibleDrafts.length - 1];
-      if (fallbackDraft) {
-        openDraft(fallbackDraft);
+        openWorkspaceTab(fallback);
         return;
       }
       await openEmptyProject(true);
@@ -333,40 +348,11 @@ export default function ArkadiaWorkspaceTabs({
       activeThreadId,
       closeWorkspaceThreadTab,
       openEmptyProject,
-      openDraft,
-      openThread,
-      projectRef,
+      openWorkspaceTab,
+      orderedTabItems,
       settleThread,
       stopThreadSession,
-      tabs,
-      visibleDrafts,
     ],
-  );
-
-  const openTerminalTab = useCallback(
-    (terminalId: string) => {
-      void router.navigate({
-        to: "/$environmentId/project/$projectId/terminal/$terminalId",
-        params: { environmentId, projectId, terminalId },
-      });
-    },
-    [environmentId, projectId, router],
-  );
-
-  const openWorkspaceTab = useCallback(
-    (item: ArkadiaWorkspaceTabItem) => {
-      if (item.kind === "thread") {
-        openThread(item.thread);
-        return;
-      }
-      if (item.kind === "draft") {
-        const draft = visibleDrafts.find((candidate) => String(candidate.draftId) === item.draftId);
-        if (draft) openDraft(draft);
-        return;
-      }
-      openTerminalTab(item.terminalId);
-    },
-    [openDraft, openTerminalTab, openThread, visibleDrafts],
   );
 
   // Closing the draft tab discards the draft outright: nothing exists
@@ -383,13 +369,7 @@ export default function ArkadiaWorkspaceTabs({
         return;
       }
 
-      const fallbackId = resolveArkadiaTabAfterClose(
-        orderedTabItems.map((item) => item.key),
-        draftKey,
-      );
-      const fallback = fallbackId
-        ? (orderedTabItems.find((item) => item.key === fallbackId) ?? null)
-        : null;
+      const fallback = resolveArkadiaWorkspaceTabAfterClose(orderedTabItems, draftKey);
       void closeArkadiaDraftTab({
         navigateAway: async () => {
           if (fallback) {
@@ -405,43 +385,24 @@ export default function ArkadiaWorkspaceTabs({
   );
 
   // Unlike a conversation, a closed terminal is gone for good — so leaving the
-  // user on its now-empty tab is not an option. Fall back to the next
-  // terminal, then to the conversations, and only then to a fresh draft.
+  // user on its now-empty tab is not an option. Use the same adjacent-tab
+  // fallback as every other workspace tab.
   const closeTerminalTab = useCallback(
     (terminalId: string) => {
-      const remaining = projectTerminals.filter((tab) => tab.terminalId !== terminalId);
       closeProjectTerminal(terminalId);
       if (activeTerminalId !== terminalId) return;
 
-      const nextTerminal = remaining[remaining.length - 1];
-      if (nextTerminal) {
-        openTerminalTab(nextTerminal.terminalId);
-        return;
-      }
-      const fallbackThread = tabs[tabs.length - 1];
-      if (fallbackThread) {
-        openThread(fallbackThread);
-        return;
-      }
-      const fallbackDraft = visibleDrafts[visibleDrafts.length - 1];
-      if (fallbackDraft) {
-        openDraft(fallbackDraft);
+      const fallback = resolveArkadiaWorkspaceTabAfterClose(
+        orderedTabItems,
+        `terminal:${terminalId}`,
+      );
+      if (fallback) {
+        openWorkspaceTab(fallback);
         return;
       }
       void openEmptyProject(true);
     },
-    [
-      activeTerminalId,
-      closeProjectTerminal,
-      openEmptyProject,
-      openDraft,
-      openTerminalTab,
-      openThread,
-      projectRef,
-      projectTerminals,
-      tabs,
-      visibleDrafts,
-    ],
+    [activeTerminalId, closeProjectTerminal, openEmptyProject, openWorkspaceTab, orderedTabItems],
   );
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));

@@ -54,8 +54,9 @@ export const formatPendingPrimaryActionLabel = (input: {
 export function shouldShowComposerStopAction(input: {
   isRunning: boolean;
   isConnecting: boolean;
+  isSendBusy: boolean;
 }): boolean {
-  return input.isRunning || input.isConnecting;
+  return input.isRunning || input.isConnecting || input.isSendBusy;
 }
 
 const preventPointerFocus: PointerEventHandler<HTMLElement> = (event) => {
@@ -139,7 +140,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     );
   }
 
-  if (shouldShowComposerStopAction({ isConnecting, isRunning })) {
+  if (shouldShowComposerStopAction({ isConnecting, isRunning, isSendBusy })) {
     return (
       <button
         type="button"
