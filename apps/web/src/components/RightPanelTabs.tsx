@@ -1,6 +1,7 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import {
+  Bot,
   BrainCircuit,
   ClipboardList,
   FileDiff,
@@ -56,6 +57,7 @@ interface RightPanelTabsProps {
   onAddFiles: () => void;
   onAddNotepad: () => void;
   onAddProjectMemory: () => void;
+  onAddAgents: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
@@ -105,6 +107,7 @@ function RightPanelEmptyState(props: {
   onAddFiles: () => void;
   onAddNotepad: () => void;
   onAddProjectMemory: () => void;
+  onAddAgents: () => void;
   browserAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
@@ -157,6 +160,14 @@ function RightPanelEmptyState(props: {
       available: true,
       disabledReason: null,
       onClick: props.onAddProjectMemory,
+    },
+    {
+      label: "Agents",
+      description: "Watch subagents and workflows run.",
+      icon: Bot,
+      available: true,
+      disabledReason: null,
+      onClick: props.onAddAgents,
     },
   ] as const;
 
@@ -239,6 +250,8 @@ function surfaceTitle(
       return "Bloc-notes";
     case "projectMemory":
       return "Mémoire";
+    case "agents":
+      return "Agents";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -304,6 +317,8 @@ function SurfaceIcon({
       return <NotebookPen className="size-3 shrink-0" />;
     case "projectMemory":
       return <BrainCircuit className="size-3 shrink-0" />;
+    case "agents":
+      return <Bot className="size-3 shrink-0" />;
   }
 }
 
@@ -512,6 +527,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <BrainCircuit />
                     Mémoire
                   </SurfaceMenuItem>
+                  <SurfaceMenuItem available onClick={props.onAddAgents}>
+                    <Bot />
+                    Agents
+                  </SurfaceMenuItem>
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -528,6 +547,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddFiles={props.onAddFiles}
             onAddNotepad={props.onAddNotepad}
             onAddProjectMemory={props.onAddProjectMemory}
+            onAddAgents={props.onAddAgents}
             browserAvailable={props.browserAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}

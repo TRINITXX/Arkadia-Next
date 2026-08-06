@@ -596,7 +596,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
 
-  it("renders consecutive collapsed tool calls as one summary row", () => {
+  it("keeps the latest collapsed tool call visible behind a previous-call summary", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -629,11 +629,11 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("2 tool calls");
+    expect(markup).toContain("+1 previous tool call");
     expect(markup).toContain('data-timeline-row-kind="work-toggle"');
-    expect(markup).not.toContain('data-timeline-row-kind="work"');
+    expect(markup).toContain('data-timeline-row-kind="work"');
     expect(markup).not.toContain("Read file");
-    expect(markup).not.toContain("Command run");
+    expect(markup).toContain("Command run");
   });
 
   it("styles interim assistant messages separately from the final answer", () => {
