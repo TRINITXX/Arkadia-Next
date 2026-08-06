@@ -273,6 +273,7 @@ export function RecentSessionsNavigatorView({
         onClick={onClose}
       />
       <section
+        data-content-surface=""
         role="dialog"
         aria-modal="true"
         aria-labelledby="recent-sessions-title"

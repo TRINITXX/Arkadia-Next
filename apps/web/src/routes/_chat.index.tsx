@@ -1,5 +1,5 @@
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { LinkIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -8,6 +8,10 @@ import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
+import { buildThreadRouteParams } from "../threadRoutes";
+import { useUiStateStore } from "../uiStateStore";
+import { resolveChatIndexRestoreTarget } from "./chatIndexRestore";
 import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -40,6 +44,10 @@ function IndexDraftLanding() {
   const threads = useThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const handleNewThread = useNewThreadHandler();
+  const router = useRouter();
+  const openWorkspaceThreadTabKeys = useUiStateStore((state) => state.openWorkspaceThreadTabKeys);
+  const lastActiveWorkspaceTabKey = useUiStateStore((state) => state.lastActiveWorkspaceTabKey);
+  const draftThreadsByThreadKey = useComposerDraftStore((state) => state.draftThreadsByThreadKey);
   const startingRef = useRef(false);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
 
@@ -50,11 +58,52 @@ function IndexDraftLanding() {
         : null,
     [bootstrapped, projects, threads],
   );
+  const restoreTarget = useMemo(
+    () =>
+      bootstrapped
+        ? resolveChatIndexRestoreTarget({
+            lastActiveWorkspaceTabKey,
+            openWorkspaceThreadTabKeys,
+            threads,
+            drafts: draftThreadsByThreadKey,
+          })
+        : null,
+    [
+      bootstrapped,
+      draftThreadsByThreadKey,
+      lastActiveWorkspaceTabKey,
+      openWorkspaceThreadTabKeys,
+      threads,
+    ],
+  );
 
   useEffect(() => {
-    if (mostRecentProject === null || startingRef.current) {
+    if (!bootstrapped || startingRef.current) {
       return;
     }
+    if (restoreTarget) {
+      startingRef.current = true;
+      const navigation =
+        restoreTarget.kind === "thread"
+          ? router.navigate({
+              to: "/$environmentId/$threadId",
+              params: buildThreadRouteParams(
+                scopeThreadRef(restoreTarget.environmentId, restoreTarget.threadId),
+              ),
+              replace: true,
+            })
+          : router.navigate({
+              to: "/draft/$draftId",
+              params: { draftId: DraftId.make(restoreTarget.draftId) },
+              replace: true,
+            });
+      void navigation.catch(() => {
+        startingRef.current = false;
+        setStartState((state) => ({ ...state, failed: true }));
+      });
+      return;
+    }
+    if (mostRecentProject === null) return;
     startingRef.current = true;
     void handleNewThread(scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id), {
       replace: true,
@@ -62,7 +111,14 @@ function IndexDraftLanding() {
       startingRef.current = false;
       setStartState((state) => ({ ...state, failed: true }));
     });
-  }, [handleNewThread, mostRecentProject, startState.retryRequest]);
+  }, [
+    bootstrapped,
+    handleNewThread,
+    mostRecentProject,
+    restoreTarget,
+    router,
+    startState.retryRequest,
+  ]);
 
   if (!bootstrapped) {
     return null;

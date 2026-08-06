@@ -1751,6 +1751,14 @@ label:has(> select#reasoning-effort) select {
   --foreground: var(--content-fg);
 }
 
+/* Portalled content surfaces sit outside the sidebar inset, so opt them into
+   the same palette explicitly. This keeps Sessions recentes aligned with the
+   agent thread and terminal background selected in Appearance settings. */
+:root[data-content-palette="on"] [data-content-surface] {
+  --background: var(--content-bg);
+  --foreground: var(--content-fg);
+}
+
 /* Agent-thread font. AgentFontSync sets these only when the user diverges from
    the default, so the vars fall back to `inherit` and the default is untouched. */
 .chat-markdown {

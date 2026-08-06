@@ -49,6 +49,7 @@ import {
   closeArkadiaDraftTab,
   resolveArkadiaInactiveProjectOpenTarget,
   resolveArkadiaProjectOpenTab,
+  resolveArkadiaSidebarViewAfterGroupsChange,
   resolveArkadiaTabAfterClose,
   requestArkadiaInactiveProjectDeletion,
   resolveArkadiaThreadIndicator,
@@ -396,11 +397,13 @@ export default function ArkadiaSidebar() {
     );
     const previousKeys = previousActiveProjectKeysRef.current;
     previousActiveProjectKeysRef.current = nextKeys;
-    if (previousKeys === null) return;
-    if ([...nextKeys].some((key) => !previousKeys.has(key))) {
-      setView("active");
-    }
-  }, [groups.active]);
+    const nextView = resolveArkadiaSidebarViewAfterGroupsChange({
+      previousActiveProjectKeys: previousKeys,
+      nextActiveProjectKeys: nextKeys,
+      selectedProjectKey,
+    });
+    if (nextView) setView(nextView);
+  }, [groups.active, selectedProjectKey]);
 
   const openThread = useCallback(
     (thread: EnvironmentThreadShell) => {

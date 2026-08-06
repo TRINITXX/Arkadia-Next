@@ -194,6 +194,7 @@ describe("RecentSessionsNavigator", () => {
     expect(markup).toContain("Chargement de la conversation");
     expect(markup).toContain("max-w-[1600px]");
     expect(markup).toContain("max-h-[1000px]");
+    expect(markup).toContain('data-content-surface=""');
     expect(markup).toContain("<time");
   });
 

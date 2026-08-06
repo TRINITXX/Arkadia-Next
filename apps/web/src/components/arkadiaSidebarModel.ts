@@ -279,6 +279,23 @@ export function isArkadiaProjectActive(tabs: ReadonlyArray<ArkadiaWorkspaceTabIt
   return tabs.length > 1 || tabs.some((tab) => tab.kind !== "draft");
 }
 
+export function resolveArkadiaSidebarViewAfterGroupsChange(input: {
+  readonly previousActiveProjectKeys: ReadonlySet<string> | null;
+  readonly nextActiveProjectKeys: ReadonlySet<string>;
+  readonly selectedProjectKey: string | null;
+}): "active" | null {
+  if (
+    input.selectedProjectKey !== null &&
+    input.nextActiveProjectKeys.has(input.selectedProjectKey)
+  ) {
+    return "active";
+  }
+  if (input.previousActiveProjectKeys === null) return null;
+  return [...input.nextActiveProjectKeys].some((key) => !input.previousActiveProjectKeys?.has(key))
+    ? "active"
+    : null;
+}
+
 /**
  * The project to fall back on once the last tab of the current project is
  * closed: the first still-active project other than the one being emptied.

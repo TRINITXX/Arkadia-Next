@@ -166,6 +166,9 @@ export default function ArkadiaWorkspaceTabs({
   const openWorkspaceThreadTabKeys = useUiStateStore((store) => store.openWorkspaceThreadTabKeys);
   const closeWorkspaceThreadTab = useUiStateStore((store) => store.closeWorkspaceThreadTab);
   const openWorkspaceThreadTab = useUiStateStore((store) => store.openWorkspaceThreadTab);
+  const setLastActiveWorkspaceTabKey = useUiStateStore(
+    (store) => store.setLastActiveWorkspaceTabKey,
+  );
   const openThreadTabKeys = useMemo(
     () => new Set(openWorkspaceThreadTabKeys),
     [openWorkspaceThreadTabKeys],
@@ -241,8 +244,18 @@ export default function ArkadiaWorkspaceTabs({
         : activeTerminalId
           ? `terminal:${activeTerminalId}`
           : null;
-    if (activeKey) markTabActive(projectKey, activeKey);
-  }, [activeDraftId, activeTerminalId, activeThreadId, environmentId, markTabActive, projectKey]);
+    if (!activeKey) return;
+    markTabActive(projectKey, activeKey);
+    setLastActiveWorkspaceTabKey(activeKey);
+  }, [
+    activeDraftId,
+    activeTerminalId,
+    activeThreadId,
+    environmentId,
+    markTabActive,
+    projectKey,
+    setLastActiveWorkspaceTabKey,
+  ]);
 
   // Any conversation reached through routing becomes an explicit local tab.
   // Keyed on the active conversation alone so closing the current tab does not

@@ -28,6 +28,7 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: typeof THREAD_CHANGED_FILES_EXPANSION_VERSION;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   openWorkspaceThreadTabKeys?: string[];
+  lastActiveWorkspaceTabKey?: string | null;
   /** Legacy inverse-tab state, read only for one-way migration. */
   closedWorkspaceTabKeys?: string[];
   /** Legacy explicit-tab state, read only for one-way migration. */
@@ -44,6 +45,8 @@ export interface UiThreadState {
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
   /** Conversation tabs explicitly opened by this client, keyed by `<environmentId>:<threadId>`. */
   openWorkspaceThreadTabKeys: string[];
+  /** Last conversation, draft, or terminal tab displayed by the Arkadia workspace. */
+  lastActiveWorkspaceTabKey: string | null;
 }
 
 export interface UiEndpointState {
@@ -58,6 +61,7 @@ const initialState: UiState = {
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   openWorkspaceThreadTabKeys: [],
+  lastActiveWorkspaceTabKey: null,
   defaultAdvertisedEndpointKey: null,
 };
 
@@ -141,6 +145,11 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     openWorkspaceThreadTabKeys: sanitizeStringArray(
       parsed.openWorkspaceThreadTabKeys ?? parsed.retainedWorkspaceTabKeys,
     ),
+    lastActiveWorkspaceTabKey:
+      typeof parsed.lastActiveWorkspaceTabKey === "string" &&
+      parsed.lastActiveWorkspaceTabKey.length > 0
+        ? parsed.lastActiveWorkspaceTabKey
+        : null,
     defaultAdvertisedEndpointKey:
       typeof parsed.defaultAdvertisedEndpointKey === "string" &&
       parsed.defaultAdvertisedEndpointKey.length > 0
@@ -219,6 +228,7 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         openWorkspaceThreadTabKeys: state.openWorkspaceThreadTabKeys,
+        lastActiveWorkspaceTabKey: state.lastActiveWorkspaceTabKey,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -409,9 +419,15 @@ export function openWorkspaceThreadTab(state: UiState, tabKey: string): UiState 
   };
 }
 
+export function setLastActiveWorkspaceTabKey(state: UiState, tabKey: string): UiState {
+  if (state.lastActiveWorkspaceTabKey === tabKey) return state;
+  return { ...state, lastActiveWorkspaceTabKey: tabKey };
+}
+
 interface UiStateStore extends UiState {
   closeWorkspaceThreadTab: (tabKey: string) => void;
   openWorkspaceThreadTab: (tabKey: string) => void;
+  setLastActiveWorkspaceTabKey: (tabKey: string) => void;
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
@@ -428,6 +444,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
   closeWorkspaceThreadTab: (tabKey) => set((state) => closeWorkspaceThreadTab(state, tabKey)),
   openWorkspaceThreadTab: (tabKey) => set((state) => openWorkspaceThreadTab(state, tabKey)),
+  setLastActiveWorkspaceTabKey: (tabKey) =>
+    set((state) => setLastActiveWorkspaceTabKey(state, tabKey)),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>

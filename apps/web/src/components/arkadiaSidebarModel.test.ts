@@ -51,6 +51,36 @@ describe("Arkadia draft closeability", () => {
 });
 
 describe("Arkadia project activity", () => {
+  it("selects Active when the restored project is already active on initial hydration", () => {
+    const resolver = (
+      arkadiaSidebarModel as unknown as {
+        resolveArkadiaSidebarViewAfterGroupsChange?: (input: {
+          previousActiveProjectKeys: ReadonlySet<string> | null;
+          nextActiveProjectKeys: ReadonlySet<string>;
+          selectedProjectKey: string | null;
+        }) => "active" | "inactive" | null;
+      }
+    ).resolveArkadiaSidebarViewAfterGroupsChange;
+
+    expect(
+      resolver?.({
+        previousActiveProjectKeys: null,
+        nextActiveProjectKeys: new Set(["local:arkadia"]),
+        selectedProjectKey: "local:arkadia",
+      }),
+    ).toBe("active");
+  });
+
+  it("selects Active when startup navigation reaches a project after groups hydrate", () => {
+    expect(
+      arkadiaSidebarModel.resolveArkadiaSidebarViewAfterGroupsChange({
+        previousActiveProjectKeys: new Set(["local:arkadia"]),
+        nextActiveProjectKeys: new Set(["local:arkadia"]),
+        selectedProjectKey: "local:arkadia",
+      }),
+    ).toBe("active");
+  });
+
   const draft = {
     kind: "draft",
     key: "draft:draft-1",

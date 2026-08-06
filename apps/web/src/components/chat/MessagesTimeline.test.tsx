@@ -568,7 +568,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Work Log");
   });
 
-  it("formats changed file paths from the workspace root", () => {
+  it("keeps changed file paths out of collapsed tool rows", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -590,8 +590,52 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("t3code/apps/web/src/session-logic.ts");
+    expect(markup).toContain("Updated files");
+    expect(markup).toContain('aria-label="Updated files"');
+    expect(markup).not.toContain("t3code/apps/web/src/session-logic.ts");
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
+  });
+
+  it("styles interim assistant messages separately from the final answer", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-commentary",
+            kind: "message",
+            createdAt: MESSAGE_CREATED_AT,
+            message: {
+              id: MessageId.make("message-commentary"),
+              role: "assistant",
+              text: "I am checking the existing handler.",
+              turnId: null,
+              createdAt: MESSAGE_CREATED_AT,
+              updatedAt: MESSAGE_CREATED_AT,
+              streaming: false,
+            },
+          },
+          {
+            id: "entry-final",
+            kind: "message",
+            createdAt: MESSAGE_CREATED_AT,
+            message: {
+              id: MessageId.make("message-final"),
+              role: "assistant",
+              text: "The handler is fixed.",
+              turnId: null,
+              createdAt: MESSAGE_CREATED_AT,
+              updatedAt: MESSAGE_CREATED_AT,
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('data-assistant-message-kind="commentary"');
+    expect(markup).toContain('data-assistant-message-kind="final"');
+    expect(markup).toContain("italic text-muted-foreground/70");
   });
 
   it("renders review comment contexts as structured cards instead of raw tags", () => {

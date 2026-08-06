@@ -26,12 +26,24 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     openWorkspaceThreadTabKeys: [],
+    lastActiveWorkspaceTabKey: null,
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
 }
 
 describe("uiStateStore pure functions", () => {
+  it("restores the last active workspace tab key", () => {
+    const parsed = parsePersistedState({
+      lastActiveWorkspaceTabKey: "local:thread-1",
+    } as PersistedUiState);
+
+    expect(
+      (parsed as unknown as { lastActiveWorkspaceTabKey?: string | null })
+        .lastActiveWorkspaceTabKey,
+    ).toBe("local:thread-1");
+  });
+
   it("stores only explicitly opened conversation tabs", () => {
     const state = makeUiState();
     const opened = openWorkspaceThreadTab(state, "local:thread-1");
@@ -208,6 +220,7 @@ describe("parsePersistedState", () => {
         },
       },
       openWorkspaceThreadTabKeys: [],
+      lastActiveWorkspaceTabKey: null,
     });
   });
 
@@ -305,6 +318,7 @@ describe("uiStateStore persistence", () => {
         },
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+      lastActiveWorkspaceTabKey: "local:thread-1",
     });
 
     persistState(state);
@@ -329,6 +343,7 @@ describe("uiStateStore persistence", () => {
         },
       },
       openWorkspaceThreadTabKeys: [],
+      lastActiveWorkspaceTabKey: "local:thread-1",
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
