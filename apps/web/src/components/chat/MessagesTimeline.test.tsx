@@ -596,6 +596,46 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
 
+  it("renders consecutive collapsed tool calls as one summary row", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "work-entry-1",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-1",
+              createdAt: MESSAGE_CREATED_AT,
+              label: "Read file",
+              detail: "package.json",
+              tone: "tool",
+            },
+          },
+          {
+            id: "work-entry-2",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-2",
+              createdAt: MESSAGE_CREATED_AT,
+              label: "Command run",
+              command: "vp test run",
+              tone: "tool",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("2 tool calls");
+    expect(markup).toContain('data-timeline-row-kind="work-toggle"');
+    expect(markup).not.toContain('data-timeline-row-kind="work"');
+    expect(markup).not.toContain("Read file");
+    expect(markup).not.toContain("Command run");
+  });
+
   it("styles interim assistant messages separately from the final answer", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline

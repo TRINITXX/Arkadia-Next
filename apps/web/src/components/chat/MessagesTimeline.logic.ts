@@ -145,7 +145,7 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       groupId: string;
-      hiddenCount: number;
+      entryCount: number;
       expanded: boolean;
       onlyToolEntries: boolean;
     }
@@ -489,9 +489,7 @@ export function deriveMessagesTimelineRows(input: {
         } else {
           const groupId = `work-group:${timelineEntry.id}`;
           const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
-          const hiddenEntries = visibleGroupedEntries.slice(0, -MAX_VISIBLE_WORK_LOG_ENTRIES);
-          const visibleEntries = visibleGroupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES);
-          const renderedEntries = expanded ? [...hiddenEntries, ...visibleEntries] : visibleEntries;
+          const renderedEntries = expanded ? visibleGroupedEntries : [];
 
           for (const workEntry of renderedEntries) {
             nextRows.push({
@@ -507,7 +505,7 @@ export function deriveMessagesTimelineRows(input: {
             id: `work-toggle:${timelineEntry.id}`,
             createdAt: timelineEntry.createdAt,
             groupId,
-            hiddenCount: hiddenEntries.length,
+            entryCount: visibleGroupedEntries.length,
             expanded,
             onlyToolEntries: visibleGroupedEntries.every((entry) => workLogEntryIsToolLike(entry)),
           });
@@ -618,7 +616,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return (
         a.createdAt === bw.createdAt &&
         a.groupId === bw.groupId &&
-        a.hiddenCount === bw.hiddenCount &&
+        a.entryCount === bw.entryCount &&
         a.expanded === bw.expanded &&
         a.onlyToolEntries === bw.onlyToolEntries
       );

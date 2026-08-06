@@ -994,10 +994,10 @@ describe("deriveMessagesTimelineRows", () => {
       expandedWorkGroupIds: new Set(["work-group:work-entry-1"]),
     });
 
-    expect(collapsedRows.map((row) => row.id)).toEqual(["work-3", "work-toggle:work-entry-1"]);
+    expect(collapsedRows.map((row) => row.id)).toEqual(["work-toggle:work-entry-1"]);
     expect(collapsedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
       groupId: "work-group:work-entry-1",
-      hiddenCount: 2,
+      entryCount: 3,
       expanded: false,
       onlyToolEntries: true,
     });
