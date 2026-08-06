@@ -261,9 +261,9 @@ export default function ArkadiaWorkspaceTabs({
   }, [activeThreadId, environmentId, openWorkspaceThreadTab]);
 
   const openThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
+    (thread: EnvironmentThreadShell): Promise<void> => {
       openWorkspaceThreadTab(arkadiaWorkspaceTabKey(thread.environmentId, thread.id));
-      void router.navigate({
+      return router.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
       });
@@ -272,8 +272,8 @@ export default function ArkadiaWorkspaceTabs({
   );
 
   const openDraft = useCallback(
-    (draft: VisibleDraft) => {
-      void router.navigate({
+    (draft: VisibleDraft): Promise<void> => {
+      return router.navigate({
         to: "/draft/$draftId",
         params: { draftId: draft.draftId },
       });
@@ -282,8 +282,8 @@ export default function ArkadiaWorkspaceTabs({
   );
 
   const openTerminalTab = useCallback(
-    (terminalId: string) => {
-      void router.navigate({
+    (terminalId: string): Promise<void> => {
+      return router.navigate({
         to: "/$environmentId/project/$projectId/terminal/$terminalId",
         params: { environmentId, projectId, terminalId },
       });
@@ -292,17 +292,15 @@ export default function ArkadiaWorkspaceTabs({
   );
 
   const openWorkspaceTab = useCallback(
-    (item: ArkadiaWorkspaceTabItem) => {
+    (item: ArkadiaWorkspaceTabItem): Promise<void> => {
       if (item.kind === "thread") {
-        openThread(item.thread);
-        return;
+        return openThread(item.thread);
       }
       if (item.kind === "draft") {
         const draft = visibleDrafts.find((candidate) => String(candidate.draftId) === item.draftId);
-        if (draft) openDraft(draft);
-        return;
+        return draft ? openDraft(draft) : Promise.resolve();
       }
-      openTerminalTab(item.terminalId);
+      return openTerminalTab(item.terminalId);
     },
     [openDraft, openTerminalTab, openThread, visibleDrafts],
   );
@@ -339,7 +337,7 @@ export default function ArkadiaWorkspaceTabs({
         arkadiaWorkspaceTabKey(thread.environmentId, thread.id),
       );
       if (fallback) {
-        openWorkspaceTab(fallback);
+        await openWorkspaceTab(fallback);
         return;
       }
       await openEmptyProject(true);
@@ -371,12 +369,11 @@ export default function ArkadiaWorkspaceTabs({
 
       const fallback = resolveArkadiaWorkspaceTabAfterClose(orderedTabItems, draftKey);
       void closeArkadiaDraftTab({
-        navigateAway: async () => {
+        navigateAway: () => {
           if (fallback) {
-            openWorkspaceTab(fallback);
-            return;
+            return openWorkspaceTab(fallback);
           }
-          await openEmptyProject(true);
+          return openEmptyProject(true);
         },
         clearDraft: () => clearDraftThread(draft.draftId),
       });

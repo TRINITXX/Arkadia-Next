@@ -525,6 +525,15 @@ export function cancelSend(state: SendCancellationState): {
   };
 }
 
+export function mergeRestoredComposerItems<T>(
+  restoredItems: ReadonlyArray<T>,
+  currentItems: ReadonlyArray<T>,
+  keyOf: (item: T) => string,
+): T[] {
+  const restoredKeys = new Set(restoredItems.map(keyOf));
+  return [...restoredItems, ...currentItems.filter((item) => !restoredKeys.has(keyOf(item)))];
+}
+
 export function createLocalDispatchSnapshot(
   activeThread: Thread | undefined,
   options?: { preparingWorktree?: boolean },

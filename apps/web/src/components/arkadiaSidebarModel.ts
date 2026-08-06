@@ -81,16 +81,16 @@ export async function requestArkadiaInactiveProjectDeletion(input: {
 }
 
 /**
- * Starts the fallback navigation, then removes the draft synchronously. The
- * router promise can remain pending while loaders settle; tab closure must not
- * depend on that promise resolving.
+ * Removes the draft after fallback navigation settles. Clearing it earlier
+ * would make the active draft route redirect away before its replacement is
+ * mounted.
  */
-export function closeArkadiaDraftTab(input: {
+export async function closeArkadiaDraftTab(input: {
   readonly navigateAway: () => Promise<void>;
   readonly clearDraft: () => void;
 }): Promise<void> {
   try {
-    return input.navigateAway();
+    await input.navigateAway();
   } finally {
     input.clearDraft();
   }

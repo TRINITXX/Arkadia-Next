@@ -3,6 +3,7 @@ import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contrac
 import { describe, expect, it } from "vite-plus/test";
 import { deriveProviderInstanceEntries } from "./providerInstances";
 import {
+  applyLunaMaxReasoningEffort,
   getAppModelOptionsForInstance,
   resolveAppModelSelectionForInstance,
   resolveAppModelSelectionState,
@@ -53,6 +54,20 @@ function settingsWithProviderInstances(): UnifiedSettings {
     },
   };
 }
+
+describe("automatic model effort", () => {
+  it("sets Luna to maximum reasoning while preserving other model options", () => {
+    expect(
+      applyLunaMaxReasoningEffort("gpt-5.6-luna", [
+        { id: "reasoningEffort", value: "low" },
+        { id: "serviceTier", value: "fast" },
+      ]),
+    ).toEqual([
+      { id: "serviceTier", value: "fast" },
+      { id: "reasoningEffort", value: "max" },
+    ]);
+  });
+});
 
 describe("instance-scoped model selection", () => {
   it("preserves server-provided legacy model metadata", () => {

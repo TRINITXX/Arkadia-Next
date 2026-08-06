@@ -499,15 +499,21 @@ describe("Arkadia workspace tabs", () => {
     expect(closeTab).toHaveBeenCalledOnce();
   });
 
-  it("closes an unstarted tab immediately without waiting for fallback navigation", () => {
+  it("clears an active draft only after fallback navigation settles", async () => {
     const clearDraft = vi.fn();
-    const navigationThatNeverSettles = new Promise<void>(() => undefined);
+    let resolveNavigation!: () => void;
+    const navigation = new Promise<void>((resolve) => {
+      resolveNavigation = resolve;
+    });
 
-    void closeArkadiaDraftTab({
-      navigateAway: () => navigationThatNeverSettles,
+    const closing = closeArkadiaDraftTab({
+      navigateAway: () => navigation,
       clearDraft,
     });
 
+    expect(clearDraft).not.toHaveBeenCalled();
+    resolveNavigation();
+    await closing;
     expect(clearDraft).toHaveBeenCalledOnce();
   });
 

@@ -5,6 +5,7 @@ import {
   type ModelSelection,
   ProviderDriverKind,
   ProviderInstanceId,
+  type ProviderOptionSelection,
   type ServerProvider,
 } from "@t3tools/contracts";
 import {
@@ -28,6 +29,21 @@ import { sortModelsForProviderInstance } from "./modelOrdering";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 const DEFAULT_TEXT_GENERATION_INSTANCE_ID = ProviderInstanceId.make("codex");
+const GPT_5_6_LUNA_MODEL = "gpt-5.6-luna";
+
+export function applyLunaMaxReasoningEffort(
+  model: string,
+  options: ReadonlyArray<ProviderOptionSelection> | null | undefined,
+): ReadonlyArray<ProviderOptionSelection> | undefined {
+  if (model !== GPT_5_6_LUNA_MODEL) {
+    return undefined;
+  }
+
+  return [
+    ...(options ?? []).filter((option) => option.id !== "reasoningEffort"),
+    { id: "reasoningEffort", value: "max" },
+  ];
+}
 
 /**
  * Resolve the custom-model list for a given instance, preferring the

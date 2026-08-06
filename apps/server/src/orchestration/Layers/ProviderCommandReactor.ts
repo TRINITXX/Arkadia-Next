@@ -1287,8 +1287,12 @@ const make = Effect.gen(function* () {
       createdAt: event.payload.createdAt,
     });
 
+    const cancelledProviderTurnId = thread.session?.activeTurnId ?? null;
     const retainedTurnCount = thread.checkpoints.reduce(
-      (latest, checkpoint) => Math.max(latest, checkpoint.checkpointTurnCount),
+      (latest, checkpoint) =>
+        checkpoint.turnId === cancelledProviderTurnId
+          ? latest
+          : Math.max(latest, checkpoint.checkpointTurnCount),
       0,
     );
     yield* orchestrationEngine.dispatch({

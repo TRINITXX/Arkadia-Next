@@ -13,6 +13,7 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import {
   ApprovalRequestId,
+  CheckpointRef,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
@@ -2943,6 +2944,100 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.status).toBe("stopped");
     expect(thread?.messages).toEqual([]);
     expect(thread?.latestTurn).toBeNull();
+  });
+
+  it("removes a cancelled turn that already has a placeholder diff checkpoint", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.make("thread-1");
+    const messageId = asMessageId("user-message-cancelled-after-diff");
+    const providerTurnId = asTurnId("provider-turn-with-placeholder-diff");
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-steering-message-before-diff-cancel"),
+        threadId,
+        message: {
+          messageId: asMessageId("steering-message-before-diff-cancel"),
+          role: "user",
+          text: "additional steering before the first checkpoint",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-before-diff-cancel"),
+        threadId,
+        message: {
+          messageId,
+          role: "user",
+          text: "mistyped prompt with an early diff",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:00.250Z",
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-active-provider-turn-before-diff-cancel"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex_work"),
+          runtimeMode: "approval-required",
+          activeTurnId: providerTurnId,
+          lastError: null,
+          updatedAt: "2026-01-01T00:00:00.400Z",
+        },
+        createdAt: "2026-01-01T00:00:00.400Z",
+      }),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-placeholder-diff-before-cancel"),
+        threadId,
+        turnId: providerTurnId,
+        completedAt: "2026-01-01T00:00:00.500Z",
+        checkpointRef: CheckpointRef.make("provider-diff:cancelled-turn"),
+        status: "missing",
+        files: [],
+        assistantMessageId: asMessageId("assistant-placeholder-before-cancel"),
+        checkpointTurnCount: 1,
+        createdAt: "2026-01-01T00:00:00.500Z",
+      }),
+    );
+
+    await harness.runEffect(
+      harness.engine.dispatch({
+        type: "thread.turn.cancel",
+        commandId: CommandId.make("cmd-turn-cancel-after-placeholder-diff"),
+        threadId,
+        messageId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      }),
+    );
+    await harness.drain();
+
+    const thread = (await harness.readModel()).threads.find((entry) => entry.id === threadId);
+    expect(thread?.messages).toEqual([]);
+    expect(thread?.latestTurn).toBeNull();
+    expect(thread?.checkpoints).toEqual([]);
   });
 
   it("reacts to thread.session.stop by stopping provider session and clearing thread session state", async () => {

@@ -85,6 +85,34 @@ describe("send cancellation", () => {
     expect(duplicate.shouldRestoreComposer).toBe(false);
     expect(duplicate.shouldCancelServerTurn).toBe(false);
   });
+
+  it("prepends restored composer items without dropping or duplicating the current draft", () => {
+    const merge = Reflect.get(chatViewLogic, "mergeRestoredComposerItems") as unknown;
+    expect(typeof merge).toBe("function");
+
+    const restored = [
+      { id: "sent-image", label: "sent" },
+      { id: "shared-image", label: "sent shared" },
+    ];
+    const current = [
+      { id: "shared-image", label: "current shared" },
+      { id: "new-image", label: "new" },
+    ];
+
+    expect(
+      (
+        merge as <T>(
+          restoredItems: ReadonlyArray<T>,
+          currentItems: ReadonlyArray<T>,
+          keyOf: (item: T) => string,
+        ) => T[]
+      )(restored, current, (item) => item.id),
+    ).toEqual([
+      { id: "sent-image", label: "sent" },
+      { id: "shared-image", label: "sent shared" },
+      { id: "new-image", label: "new" },
+    ]);
+  });
 });
 
 describe("isChatViewWorking", () => {

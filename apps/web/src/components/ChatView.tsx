@@ -150,7 +150,10 @@ import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useEnvironmentSettings } from "../hooks/useSettings";
-import { resolveAppModelSelectionForInstance } from "../modelSelection";
+import {
+  applyLunaMaxReasoningEffort,
+  resolveAppModelSelectionForInstance,
+} from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import { preventRepeatedTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
@@ -248,6 +251,7 @@ import {
   isChatViewWorking,
   isBranchMismatchDismissedForSession,
   markSendTurnStartDispatched,
+  mergeRestoredComposerItems,
   shouldShowBranchMismatchBanner,
   getStartedThreadModelChangeBlockReason,
   type LocalDispatchSnapshot,
@@ -4731,11 +4735,50 @@ function ChatViewContent(props: ChatViewProps) {
         const restoredPrompt = currentPrompt.length
           ? `${promptForSend}\n\n${currentPrompt}`
           : promptForSend;
-        promptRef.current = restoredPrompt;
         setComposerDraftPrompt(composerDraftTarget, restoredPrompt);
+        const currentDraft =
+          useComposerDraftStore.getState().getComposerDraft(composerDraftTarget) ?? null;
+        const retryComposerImages = composerImagesSnapshot.map(cloneComposerImageForRetry);
+        const mergedImages = mergeRestoredComposerItems(
+          retryComposerImages,
+          currentDraft?.images ?? [],
+          (image) => image.id,
+        );
+        const mergedTerminalContexts = mergeRestoredComposerItems(
+          composerTerminalContextsSnapshot,
+          currentDraft?.terminalContexts ?? [],
+          (context) => context.id,
+        );
+        const mergedElementContexts = mergeRestoredComposerItems(
+          composerElementContextsSnapshot,
+          currentDraft?.elementContexts ?? [],
+          (context) => context.id,
+        );
+        const mergedPreviewAnnotations = mergeRestoredComposerItems(
+          composerPreviewAnnotationsSnapshot,
+          currentDraft?.previewAnnotations ?? [],
+          (annotation) => annotation.id,
+        );
+        const mergedReviewComments = mergeRestoredComposerItems(
+          composerReviewCommentsSnapshot,
+          currentDraft?.reviewComments ?? [],
+          (comment) => comment.id,
+        );
+        composerImagesRef.current = mergedImages;
+        composerTerminalContextsRef.current = mergedTerminalContexts;
+        composerElementContextsRef.current = mergedElementContexts;
+        addComposerDraftImages(composerDraftTarget, retryComposerImages);
+        setComposerDraftTerminalContexts(composerDraftTarget, mergedTerminalContexts);
+        setComposerDraftElementContexts(composerDraftTarget, mergedElementContexts);
+        setComposerDraftPreviewAnnotations(composerDraftTarget, mergedPreviewAnnotations);
+        setComposerDraftReviewComments(composerDraftTarget, mergedReviewComments);
+        const finalRestoredPrompt =
+          useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.prompt ??
+          restoredPrompt;
+        promptRef.current = finalRestoredPrompt;
         composerRef.current?.resetCursorState({
-          cursor: collapseExpandedComposerCursor(restoredPrompt, restoredPrompt.length),
-          prompt: restoredPrompt,
+          cursor: collapseExpandedComposerCursor(finalRestoredPrompt, finalRestoredPrompt.length),
+          prompt: finalRestoredPrompt,
           detectTrigger: true,
         });
         return;
@@ -5561,11 +5604,23 @@ function ChatViewContent(props: ChatViewProps) {
         scheduleComposerFocus();
         return;
       }
+      const currentModelOptions =
+        useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)
+          ?.modelSelectionByProvider[instanceId]?.options ??
+        (activeThread.modelSelection.instanceId === instanceId
+          ? activeThread.modelSelection.options
+          : undefined);
+      const automaticModelOptions = applyLunaMaxReasoningEffort(resolvedModel, currentModelOptions);
+      const selectionWithAutomaticOptions: ModelSelection = {
+        instanceId,
+        model: resolvedModel,
+        ...(automaticModelOptions ? { options: automaticModelOptions } : {}),
+      };
       setComposerDraftModelSelection(
         scopeThreadRef(activeThread.environmentId, activeThread.id),
-        nextModelSelection,
+        selectionWithAutomaticOptions,
       );
-      setStickyComposerModelSelection(nextModelSelection);
+      setStickyComposerModelSelection(selectionWithAutomaticOptions);
       scheduleComposerFocus();
     },
     [
@@ -5576,6 +5631,7 @@ function ChatViewContent(props: ChatViewProps) {
       setStickyComposerModelSelection,
       providerStatuses,
       settings,
+      composerDraftTarget,
     ],
   );
   const onEnvModeChange = useCallback(
