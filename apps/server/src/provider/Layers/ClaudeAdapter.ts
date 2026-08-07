@@ -2504,7 +2504,17 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ? {
                 itemId: asRuntimeItemId(assistantBlockEntry.block.itemId),
               }
-            : {}),
+            : event.delta.type === "thinking_delta"
+              ? {
+                  // Thinking blocks have no provider item of their own, but
+                  // ingestion folds a reasoning stream into one activity row
+                  // per block — so give each content-block index a stable id
+                  // instead of letting consecutive blocks merge into one.
+                  itemId: asRuntimeItemId(
+                    `thinking:${context.turnState.turnId}:${String(event.index)}`,
+                  ),
+                }
+              : {}),
           payload: {
             streamKind,
             delta: deltaText,

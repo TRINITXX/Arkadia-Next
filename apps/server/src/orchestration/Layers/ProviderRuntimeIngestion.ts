@@ -8,6 +8,7 @@ import {
   type OrchestrationProposedPlanId,
   CheckpointRef,
   classifyTaskAgentKind,
+  type ContentDeltaPayload,
   EventId,
   isToolLifecycleItemType,
   ThreadId,
@@ -87,6 +88,24 @@ interface AssistantSegmentState {
   activeMessageId: MessageId | null;
 }
 
+/**
+ * One in-flight reasoning block per thread. Providers stream reasoning as
+ * deltas but activities carry whole values, so the block accumulates here and
+ * upserts a single row through its stable `activityId`. `createdAt` and
+ * `sequence` are pinned to the block's first delta: later updates must not
+ * reorder the row past the tool calls that came after it.
+ */
+interface ActiveReasoningBlock {
+  activityId: string;
+  createdAt: string;
+  sequence: number | undefined;
+  turnId: TurnId | null;
+  streamKind: "reasoning_text" | "reasoning_summary_text";
+  text: string;
+  emittedLength: number;
+  emittedAtMs: number;
+}
+
 const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 10_000;
 const TURN_MESSAGE_IDS_BY_TURN_TTL = Duration.minutes(120);
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY = 20_000;
@@ -95,6 +114,14 @@ const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const TASK_DESCRIPTION_BY_TASK_CACHE_CAPACITY = 10_000;
 const TASK_DESCRIPTION_BY_TASK_TTL = Duration.minutes(120);
+const ACTIVE_REASONING_BLOCK_CACHE_CAPACITY = 10_000;
+const ACTIVE_REASONING_BLOCK_TTL = Duration.minutes(120);
+// A reasoning row upserts its whole accumulated text, so dispatching on every
+// delta would rewrite the block O(n²) times over a long train of thought.
+// Coalescing to a few updates a second keeps the stream visibly live at a
+// fraction of the write volume; the block always flushes in full when
+// anything else happens on the thread.
+const REASONING_EMIT_INTERVAL_MS = 300;
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
@@ -233,6 +260,23 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
     return `plan:${threadId}:item:${event.itemId}`;
   }
   return `plan:${threadId}:event:${event.eventId}`;
+}
+
+/**
+ * Identifies the reasoning block a delta belongs to. Providers scope reasoning
+ * to an item (Codex) or to a synthetic per-content-block id (Claude), and
+ * Codex splits a single item into indexed summary/detail streams — so the
+ * indices join the key, or two interleaved streams would overwrite each other.
+ */
+function reasoningBlockActivityId(
+  threadId: ThreadId,
+  event: ProviderRuntimeEvent & { payload: ContentDeltaPayload },
+): string {
+  const base = event.itemId ?? event.turnId ?? event.eventId;
+  const index = event.payload.summaryIndex ?? event.payload.contentIndex;
+  return `reasoning:${threadId}:${String(base)}:${event.payload.streamKind}${
+    index === undefined ? "" : `:${String(index)}`
+  }`;
 }
 
 function assistantSegmentBaseKeyFromEvent(event: ProviderRuntimeEvent): string {
@@ -1012,6 +1056,15 @@ const make = Effect.gen(function* () {
     lookup: () => Effect.succeed({ text: "", createdAt: "" }),
   });
 
+  const activeReasoningBlockByThread = yield* Cache.make<ThreadId, ActiveReasoningBlock>({
+    capacity: ACTIVE_REASONING_BLOCK_CACHE_CAPACITY,
+    timeToLive: ACTIVE_REASONING_BLOCK_TTL,
+    lookup: () =>
+      Effect.die(
+        new Error("active reasoning block should be read through getOption before initialization"),
+      ),
+  });
+
   // Task names arrive on task.started/task.progress but not on task.completed,
   // so remember them per task to title the completion activity.
   const taskDescriptionByTaskKey = yield* Cache.make<string, string>({
@@ -1221,6 +1274,125 @@ const make = Effect.gen(function* () {
 
   const clearBufferedProposedPlan = (planId: string) =>
     Cache.invalidate(bufferedProposedPlanById, planId);
+
+  const emitReasoningActivity = (input: {
+    event: ProviderRuntimeEvent;
+    threadId: ThreadId;
+    block: ActiveReasoningBlock;
+  }) =>
+    providerCommandId(input.event, "reasoning-updated").pipe(
+      Effect.flatMap((commandId) =>
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId,
+          threadId: input.threadId,
+          activity: {
+            id: EventId.make(input.block.activityId),
+            createdAt: input.block.createdAt,
+            tone: "info",
+            kind: "reasoning.updated",
+            summary: "Thinking",
+            payload: {
+              text: input.block.text,
+              streamKind: input.block.streamKind,
+            },
+            turnId: input.block.turnId,
+            ...(input.block.sequence !== undefined ? { sequence: input.block.sequence } : {}),
+          },
+          createdAt: input.block.createdAt,
+        }),
+      ),
+    );
+
+  /**
+   * Publishes whatever the active block has accumulated since its last update.
+   * Called for every non-reasoning event, so a block is always whole by the
+   * time the tool call or answer that follows it renders. `close` drops the
+   * block; short of that the text is kept, so a provider that resumes the same
+   * block cannot restart it from empty and truncate the row.
+   */
+  const flushActiveReasoningBlock = (input: {
+    event: ProviderRuntimeEvent;
+    threadId: ThreadId;
+    close: boolean;
+    nowMs: number;
+  }) =>
+    Cache.getOption(activeReasoningBlockByThread, input.threadId).pipe(
+      Effect.flatMap((existing) =>
+        Effect.gen(function* () {
+          const block = Option.getOrUndefined(existing);
+          if (!block) {
+            return;
+          }
+          if (block.emittedLength < block.text.length) {
+            yield* emitReasoningActivity({
+              event: input.event,
+              threadId: input.threadId,
+              block,
+            });
+          }
+          if (input.close) {
+            yield* Cache.invalidate(activeReasoningBlockByThread, input.threadId);
+            return;
+          }
+          yield* Cache.set(activeReasoningBlockByThread, input.threadId, {
+            ...block,
+            emittedLength: block.text.length,
+            emittedAtMs: input.nowMs,
+          });
+        }),
+      ),
+    );
+
+  const recordReasoningDelta = (input: {
+    event: ProviderRuntimeEvent & { payload: ContentDeltaPayload };
+    threadId: ThreadId;
+    streamKind: ActiveReasoningBlock["streamKind"];
+    now: string;
+  }) =>
+    Effect.gen(function* () {
+      const activityId = reasoningBlockActivityId(input.threadId, input.event);
+      const nowMs = isoToEpochMs(input.now) ?? 0;
+      const existing = Option.getOrUndefined(
+        yield* Cache.getOption(activeReasoningBlockByThread, input.threadId),
+      );
+      if (existing && existing.activityId !== activityId) {
+        yield* flushActiveReasoningBlock({
+          event: input.event,
+          threadId: input.threadId,
+          close: true,
+          nowMs,
+        });
+      }
+      const previous = existing?.activityId === activityId ? existing : undefined;
+      const sessionSequence = (input.event as ProviderRuntimeEvent & { sessionSequence?: number })
+        .sessionSequence;
+      const block: ActiveReasoningBlock = {
+        activityId,
+        createdAt: previous?.createdAt ?? input.now,
+        sequence: previous?.sequence ?? sessionSequence,
+        turnId: previous?.turnId ?? toTurnId(input.event.turnId) ?? null,
+        streamKind: input.streamKind,
+        text: `${previous?.text ?? ""}${input.event.payload.delta}`,
+        emittedLength: previous?.emittedLength ?? 0,
+        emittedAtMs: previous?.emittedAtMs ?? 0,
+      };
+      // The opening delta publishes at once so the row appears the moment the
+      // model starts thinking; the rest rides the coalescing interval.
+      const shouldEmit =
+        block.emittedLength === 0 || nowMs - block.emittedAtMs >= REASONING_EMIT_INTERVAL_MS;
+      yield* Cache.set(activeReasoningBlockByThread, input.threadId, {
+        ...block,
+        ...(shouldEmit ? { emittedLength: block.text.length, emittedAtMs: nowMs } : {}),
+      });
+      if (shouldEmit) {
+        yield* emitReasoningActivity({
+          event: input.event,
+          threadId: input.threadId,
+          block,
+        });
+      }
+    });
 
   const clearAssistantMessageState = (messageId: MessageId) =>
     clearBufferedAssistantText(messageId);
@@ -1746,6 +1918,33 @@ const make = Effect.gen(function* () {
           : undefined;
       const proposedPlanDelta =
         event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
+
+      const reasoningStreamKind =
+        event.type === "content.delta" &&
+        (event.payload.streamKind === "reasoning_text" ||
+          event.payload.streamKind === "reasoning_summary_text")
+          ? event.payload.streamKind
+          : undefined;
+      if (reasoningStreamKind !== undefined && event.type === "content.delta") {
+        if (event.payload.delta.length > 0) {
+          yield* recordReasoningDelta({
+            event,
+            threadId: thread.id,
+            streamKind: reasoningStreamKind,
+            now,
+          });
+        }
+      } else {
+        // Anything else on the thread ends the model's current train of
+        // thought as far as the timeline is concerned, so publish it whole
+        // before the tool row or answer that follows it lands.
+        yield* flushActiveReasoningBlock({
+          event,
+          threadId: thread.id,
+          close: event.type === "turn.completed" || event.type === "session.exited",
+          nowMs: isoToEpochMs(now) ?? 0,
+        });
+      }
 
       if (assistantDelta && assistantDelta.length > 0) {
         const turnId = toTurnId(event.turnId);

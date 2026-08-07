@@ -37,7 +37,9 @@ import {
   workEntryIndicatesToolFailure,
   workEntryIndicatesToolNeutralStatus,
   workEntryIndicatesToolSuccess,
+  workLogEntryIsReasoning,
   workLogEntryIsToolLike,
+  type WorkLogEntry,
 } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import {
@@ -1052,21 +1054,25 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
-  const isCommentary = !row.showAssistantMeta;
 
   return (
     <>
-      <div
-        className="relative min-w-0 px-1 py-0.5"
-        data-assistant-message-kind={isCommentary ? "commentary" : "final"}
-      >
+      {/*
+       * Every assistant message renders as plain prose. Dimming interim
+       * messages was keyed on the metadata row, which is withheld for the
+       * whole of a running turn and for turns that never record a completion
+       * — so the actual answer read as an aside while it streamed, and stayed
+       * dimmed forever after an interrupt. None of this text is model
+       * reasoning: reasoning deltas are dropped during ingestion and never
+       * reach the timeline.
+       */}
+      <div className="relative min-w-0 px-1 py-0.5">
         <ChatMarkdown
           text={messageText}
           cwd={ctx.markdownCwd}
           threadRef={ctx.threadRef ?? undefined}
           isStreaming={Boolean(row.message.streaming)}
           skills={ctx.skills}
-          {...(isCommentary ? { className: "italic text-muted-foreground/70" } : {})}
         />
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
@@ -1204,31 +1210,70 @@ const WorkGroupSection = memo(function WorkGroupSection({
     () => groupedEntries.filter((entry) => !workEntryIndicatesToolNeutralStatus(entry)),
     [groupedEntries],
   );
-  const onlyToolEntries = nonEmptyEntries.every((entry) => workLogEntryIsToolLike(entry));
-  const groupLabel = onlyToolEntries
-    ? nonEmptyEntries.length === 1
-      ? "1 tool call"
-      : `${nonEmptyEntries.length} tool calls`
-    : "Work Log";
+  // Reasoning sits inside the group but is not work being counted: it carries
+  // its own heading, so it must not turn a run of tool calls into a generic
+  // "Work Log" section either.
+  const countedEntries = nonEmptyEntries.filter((entry) => !workLogEntryIsReasoning(entry));
+  const onlyToolEntries = countedEntries.every((entry) => workLogEntryIsToolLike(entry));
+  const groupLabel =
+    countedEntries.length === 0
+      ? "Thinking"
+      : onlyToolEntries
+        ? countedEntries.length === 1
+          ? "1 tool call"
+          : `${countedEntries.length} tool calls`
+        : "Work Log";
 
   if (nonEmptyEntries.length === 0) return null;
 
   return (
     <section className="-mx-1 space-y-0.5 px-1 py-0.5" aria-label={groupLabel}>
-      {!onlyToolEntries && (
+      {!onlyToolEntries && countedEntries.length > 0 && (
         <p className="px-0.5 pb-0.5 font-medium text-[11px] text-muted-foreground/65">
           {groupLabel}
         </p>
       )}
       <div className="space-y-px">
-        {nonEmptyEntries.map((workEntry) => (
-          <SimpleWorkEntryRow
-            key={workEntry.id}
-            workEntry={workEntry}
-            workspaceRoot={workspaceRoot}
-          />
-        ))}
+        {nonEmptyEntries.map((workEntry) =>
+          workLogEntryIsReasoning(workEntry) ? (
+            <ReasoningEntryRow key={workEntry.id} workEntry={workEntry} />
+          ) : (
+            <SimpleWorkEntryRow
+              key={workEntry.id}
+              workEntry={workEntry}
+              workspaceRoot={workspaceRoot}
+            />
+          ),
+        )}
       </div>
+    </section>
+  );
+});
+
+/**
+ * The model's train of thought, rendered whole. Grey italics is the one style
+ * in the timeline that means "not addressed to you" — which only holds because
+ * assistant messages, interim ones included, are plain prose.
+ */
+const ReasoningEntryRow = memo(function ReasoningEntryRow({
+  workEntry,
+}: {
+  workEntry: WorkLogEntry;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const text = workEntry.reasoningText ?? "";
+  if (text.trim().length === 0) return null;
+
+  return (
+    <section className="min-w-0 px-0.5 py-1" aria-label="Thinking" data-work-entry-kind="reasoning">
+      <p className="pb-0.5 font-medium text-[11px] text-muted-foreground/65">Thinking</p>
+      <ChatMarkdown
+        text={text}
+        cwd={ctx.markdownCwd}
+        threadRef={ctx.threadRef ?? undefined}
+        skills={ctx.skills}
+        className="italic text-muted-foreground/70"
+      />
     </section>
   );
 });
@@ -1240,10 +1285,10 @@ function WorkGroupToggleTimelineRow({
 }) {
   const ctx = use(TimelineRowCtx);
   const labelNoun = row.onlyToolEntries
-    ? row.hiddenCount === 1
+    ? row.entryCount === 1
       ? "tool call"
       : "tool calls"
-    : row.hiddenCount === 1
+    : row.entryCount === 1
       ? "log entry"
       : "log entries";
 
@@ -1272,7 +1317,7 @@ function WorkGroupToggleTimelineRow({
         </span>
       ) : (
         <span className="font-medium text-foreground/82">
-          +{row.hiddenCount} previous {labelNoun}
+          {row.entryCount} {labelNoun}
         </span>
       )}
     </button>

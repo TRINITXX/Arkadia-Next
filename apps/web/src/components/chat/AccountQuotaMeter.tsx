@@ -16,6 +16,12 @@ function formatPercentage(value: number): string {
   return `${Math.round(value)}%`;
 }
 
+/** Compact label under the ring: whole percent only, so it stays legible at 9px. */
+function formatRingPercentage(value: number): string {
+  if (!Number.isFinite(value)) return "0%";
+  return `${Math.round(value)}%`;
+}
+
 function usageColorFor(percentage: number): string {
   if (percentage > 90) return "var(--color-red-500)";
   if (percentage > 75) return "var(--color-amber-500)";
@@ -86,13 +92,13 @@ function QuotaRing(props: {
           <button
             type="button"
             className={cn(
-              "inline-flex size-7 cursor-pointer items-center justify-center rounded-full border border-transparent text-muted-foreground outline-none transition-colors",
+              "inline-flex w-8 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md border border-transparent px-0.5 py-1 text-muted-foreground outline-none transition-colors",
               "hover:bg-accent data-[pressed]:bg-accent",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
             )}
             aria-label={`Quota Claude ${props.label} ${formatPercentage(percentage)} utilisé`}
           >
-            <span className="relative flex size-5 items-center justify-center">
+            <span className="relative flex size-5 shrink-0 items-center justify-center">
               <svg
                 viewBox="0 0 24 24"
                 className="-rotate-90 absolute inset-0 size-full transform-gpu"
@@ -120,6 +126,12 @@ function QuotaRing(props: {
                 />
               </svg>
               {props.icon}
+            </span>
+            <span
+              className="font-medium text-[9px] leading-none tabular-nums text-muted-foreground/70"
+              aria-hidden="true"
+            >
+              {formatRingPercentage(percentage)}
             </span>
           </button>
         }

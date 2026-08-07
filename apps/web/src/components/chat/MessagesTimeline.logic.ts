@@ -2,6 +2,7 @@ import * as Equal from "effect/Equal";
 import {
   formatDuration,
   workEntryIndicatesToolNeutralStatus,
+  workLogEntryIsReasoning,
   workLogEntryIsToolLike,
   type TimelineEntry,
   type WorkLogEntry,
@@ -145,7 +146,7 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       groupId: string;
-      hiddenCount: number;
+      entryCount: number;
       expanded: boolean;
       onlyToolEntries: boolean;
     }
@@ -497,20 +498,19 @@ export function deriveMessagesTimelineRows(input: {
           const groupId = `work-group:${timelineEntry.id}`;
           const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
           // Agent-spawn CTA rows are always visible: a running fleet must
-          // never hide behind a "+N tool calls" toggle. Selection is by
-          // membership (spawn OR recent-tail), preserving the group's
-          // chronological order in both collapsed and expanded states
-          // (review finding: concatenating two filtered lists moved a
-          // mid-group spawn row above earlier tool rows).
-          const overflowCandidates = visibleGroupedEntries.filter(
-            (entry) => entry.agentSpawn === undefined,
-          );
-          const hiddenEntries = overflowCandidates.slice(0, -MAX_VISIBLE_WORK_LOG_ENTRIES);
-          const hiddenIds = new Set(hiddenEntries.map((entry) => entry.id));
-          const visibleEntries = visibleGroupedEntries.filter(
-            (entry) => entry.agentSpawn !== undefined || !hiddenIds.has(entry.id),
-          );
-          const renderedEntries = expanded ? visibleGroupedEntries : visibleEntries;
+          // never hide behind a tool-call summary. Reasoning rows are exempt
+          // for the same reason from the other end — the thinking is the part
+          // worth reading, so it renders in full and stays out of the count.
+          // Ordinary entries collapse into one total-count row instead of
+          // leaving the latest tool on a separate line.
+          const alwaysVisible = (entry: WorkLogEntry) =>
+            entry.agentSpawn !== undefined || workLogEntryIsReasoning(entry);
+          const summaryEntries = visibleGroupedEntries.filter((entry) => !alwaysVisible(entry));
+          const shouldSummarize = summaryEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
+          const renderedEntries =
+            expanded || !shouldSummarize
+              ? visibleGroupedEntries
+              : visibleGroupedEntries.filter(alwaysVisible);
 
           for (const workEntry of renderedEntries) {
             nextRows.push({
@@ -521,17 +521,15 @@ export function deriveMessagesTimelineRows(input: {
             });
           }
 
-          if (hiddenEntries.length > 0) {
+          if (shouldSummarize) {
             nextRows.push({
               kind: "work-toggle",
               id: `work-toggle:${timelineEntry.id}`,
               createdAt: timelineEntry.createdAt,
               groupId,
-              hiddenCount: hiddenEntries.length,
+              entryCount: summaryEntries.length,
               expanded,
-              onlyToolEntries: visibleGroupedEntries.every((entry) =>
-                workLogEntryIsToolLike(entry),
-              ),
+              onlyToolEntries: summaryEntries.every((entry) => workLogEntryIsToolLike(entry)),
             });
           }
         }
@@ -641,7 +639,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return (
         a.createdAt === bw.createdAt &&
         a.groupId === bw.groupId &&
-        a.hiddenCount === bw.hiddenCount &&
+        a.entryCount === bw.entryCount &&
         a.expanded === bw.expanded &&
         a.onlyToolEntries === bw.onlyToolEntries
       );

@@ -240,3 +240,36 @@ export function makeAcpContentDeltaEvent(input: {
     },
   };
 }
+
+/**
+ * ACP agents stream their thinking on a channel of its own
+ * (`agent_thought_chunk`), which ingestion folds into reasoning rows rather
+ * than into the assistant message.
+ */
+export function makeAcpReasoningDeltaEvent(input: {
+  readonly stamp: AcpEventStamp;
+  readonly provider: ProviderDriverKind;
+  readonly threadId: ThreadId;
+  readonly turnId: TurnId | undefined;
+  readonly itemId?: string;
+  readonly text: string;
+  readonly rawPayload: unknown;
+}): ProviderRuntimeEvent {
+  return {
+    type: "content.delta",
+    ...input.stamp,
+    provider: input.provider,
+    threadId: input.threadId,
+    turnId: input.turnId,
+    ...(input.itemId ? { itemId: RuntimeItemId.make(input.itemId) } : {}),
+    payload: {
+      streamKind: "reasoning_text",
+      delta: input.text,
+    },
+    raw: {
+      source: "acp.jsonrpc",
+      method: "session/update",
+      payload: input.rawPayload,
+    },
+  };
+}

@@ -45,6 +45,7 @@ import {
 } from "../../composer-logic";
 import { deriveComposerSendState, readFileAsDataUrl } from "../ChatView.logic";
 import { useDictation } from "../../voice/useDictation";
+import { useSystemDictationHotkey } from "../../voice/useSystemDictationHotkey";
 import { VoiceSessionListener } from "../../voice/VoiceSessionListener";
 import {
   dataTransferHasComposerMention,
@@ -99,6 +100,7 @@ import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerControl, ComposerControlIcon, ComposerSelectControl } from "./ComposerControl";
 import { RECENT_FILES_TRIGGER_ATTRIBUTE, RecentFilesPicker } from "./RecentFilesPicker";
+import { quoteRecentFilePathsForPrompt } from "./RecentFilesPicker.logic";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
 import {
@@ -2447,6 +2449,45 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Callbacks: paste / drag
   // ------------------------------------------------------------------
+
+  // Non-image files (PDFs, archives, logs…) can't ride along as multimodal
+  // attachments, so their absolute path is dropped into the prompt instead —
+  // the same quoted shape the downloads picker inserts. Resolving the path
+  // needs Electron's webUtils, so this only works in the desktop app; in a
+  // plain browser a File never exposes its path, and we say so rather than
+  // silently doing nothing.
+  const insertDroppedFilePaths = (files: File[]) => {
+    const resolvePath = window.desktopBridge?.getPathForFile;
+    if (resolvePath === undefined) {
+      if (activeThreadId) {
+        setThreadError(
+          activeThreadId,
+          "Attaching non-image files is only available in the desktop app.",
+        );
+      }
+      return;
+    }
+    const paths: string[] = [];
+    for (const file of files) {
+      const path = resolvePath(file);
+      if (path.length > 0) paths.push(path);
+    }
+    if (paths.length === 0) return;
+    insertComposerTextAtEnd(quoteRecentFilePathsForPrompt(paths), {
+      ensureLeadingBoundary: true,
+    });
+  };
+
+  // Routes each dropped or picked file to its lane: images become real
+  // attachments, everything else gets its path pasted into the prompt.
+  const attachFilesToComposer = (files: File[]) => {
+    if (files.length === 0) return;
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    const others = files.filter((file) => !file.type.startsWith("image/"));
+    if (images.length > 0) void addComposerImages(images);
+    if (others.length > 0) insertDroppedFilePaths(others);
+  };
+
   const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
@@ -2487,7 +2528,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
     const files = Array.from(event.dataTransfer.files);
-    void addComposerImages(files);
+    attachFilesToComposer(files);
     focusComposer();
   };
 
@@ -2506,7 +2547,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     // still fires a change event.
     event.target.value = "";
     if (files.length === 0) return;
-    void addComposerImages(files);
+    attachFilesToComposer(files);
     focusComposer();
   };
 
@@ -2597,6 +2638,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       toastManager.add({ type: "error", title: "Dictée vocale", description: message });
     },
   });
+
+  /**
+   * Sur le bureau, le bouton micro ne pilote pas la dictée intégrée : il appuie
+   * sur le raccourci global de l'outil de dictée de l'utilisateur, qui écrit
+   * ensuite lui-même dans le champ ayant le focus. La dictée intégrée reste le
+   * repli du navigateur, et le geste barre d'espace continue de la piloter.
+   */
+  const systemDictation = useSystemDictationHotkey({
+    onError: (message) => {
+      toastManager.add({ type: "error", title: "Dictée vocale", description: message });
+    },
+  });
+
+  const toggleDictation = (): void => {
+    if (!systemDictation.available) {
+      dictation.toggle();
+      return;
+    }
+    // Le texte dicté atterrit là où est le focus : il doit être dans le
+    // composeur, pas resté sur le bouton qu'on vient de cliquer.
+    focusComposer();
+    systemDictation.toggle();
+  };
+
+  const isDictating = systemDictation.available ? systemDictation.active : dictation.recording;
 
   // Chaque prise de parole repart d'un ancrage neuf.
   useEffect(() => {
@@ -3374,14 +3440,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       <ComposerControl
                         className={cn(
                           "shrink-0 whitespace-nowrap",
-                          dictation.recording
+                          isDictating
                             ? "bg-red-500/10 text-red-400 hover:bg-red-500/15 hover:text-red-300"
                             : "text-muted-foreground/70 hover:text-foreground/80",
                         )}
                         type="button"
-                        onClick={dictation.toggle}
-                        aria-label={dictation.recording ? "Arrêter la dictée" : "Dicter"}
-                        aria-pressed={dictation.recording}
+                        onClick={toggleDictation}
+                        aria-label={isDictating ? "Arrêter la dictée" : "Dicter"}
+                        aria-pressed={isDictating}
                       />
                     }
                   >
@@ -3393,16 +3459,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     ) : (
                       <ComposerControlIcon
                         icon={MicIcon}
-                        {...(dictation.recording
+                        {...(isDictating
                           ? { className: "animate-dictation-pulse text-current opacity-100" }
                           : {})}
                       />
                     )}
                   </TooltipTrigger>
                   <TooltipPopup side="top">
-                    {dictation.recording
-                      ? "Relâchez pour transcrire"
-                      : "Dicter — ou maintenez la barre d'espace"}
+                    {systemDictation.available
+                      ? isDictating
+                        ? "Arrêter la dictée (Ctrl+Maj+F8)"
+                        : "Dicter (Ctrl+Maj+F8)"
+                      : dictation.recording
+                        ? "Relâchez pour transcrire"
+                        : "Dicter — ou maintenez la barre d'espace"}
                   </TooltipPopup>
                 </Tooltip>
                 <Tooltip>
@@ -3436,7 +3506,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <input
                   ref={attachmentInputRef}
                   type="file"
-                  accept="image/*"
                   multiple
                   className="hidden"
                   tabIndex={-1}

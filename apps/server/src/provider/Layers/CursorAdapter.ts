@@ -54,6 +54,7 @@ import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
+  makeAcpReasoningDeltaEvent,
   makeAcpPlanUpdatedEvent,
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
@@ -857,6 +858,25 @@ export function makeCursorAdapter(
                     );
                     yield* offerRuntimeEvent(
                       makeAcpContentDeltaEvent({
+                        stamp: yield* makeEventStamp(),
+                        provider: PROVIDER,
+                        threadId: ctx.threadId,
+                        turnId: ctx.activeTurnId,
+                        ...(event.itemId ? { itemId: event.itemId } : {}),
+                        text: event.text,
+                        rawPayload: event.rawPayload,
+                      }),
+                    );
+                    return;
+                  case "ReasoningDelta":
+                    yield* logNative(
+                      ctx.threadId,
+                      "session/update",
+                      event.rawPayload,
+                      "acp.jsonrpc",
+                    );
+                    yield* offerRuntimeEvent(
+                      makeAcpReasoningDeltaEvent({
                         stamp: yield* makeEventStamp(),
                         provider: PROVIDER,
                         threadId: ctx.threadId,

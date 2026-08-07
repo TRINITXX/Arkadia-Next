@@ -46,6 +46,7 @@ import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
+  makeAcpReasoningDeltaEvent,
   makeAcpPlanUpdatedEvent,
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
@@ -859,6 +860,19 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                   case "ContentDelta":
                     yield* offerRuntimeEvent(
                       makeAcpContentDeltaEvent({
+                        stamp,
+                        provider: PROVIDER,
+                        threadId: ctx.threadId,
+                        turnId: notificationTurnId,
+                        ...(event.itemId ? { itemId: event.itemId } : {}),
+                        text: event.text,
+                        rawPayload: event.rawPayload,
+                      }),
+                    );
+                    return;
+                  case "ReasoningDelta":
+                    yield* offerRuntimeEvent(
+                      makeAcpReasoningDeltaEvent({
                         stamp,
                         provider: PROVIDER,
                         threadId: ctx.threadId,

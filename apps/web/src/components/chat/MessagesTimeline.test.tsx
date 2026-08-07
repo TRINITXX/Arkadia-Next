@@ -596,7 +596,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
   });
 
-  it("keeps the latest collapsed tool call visible behind a previous-call summary", () => {
+  it("renders consecutive collapsed tool calls as one summary row", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -629,14 +629,41 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("+1 previous tool call");
+    expect(markup).toContain("2 tool calls");
     expect(markup).toContain('data-timeline-row-kind="work-toggle"');
-    expect(markup).toContain('data-timeline-row-kind="work"');
+    expect(markup).not.toContain('data-timeline-row-kind="work"');
     expect(markup).not.toContain("Read file");
-    expect(markup).toContain("Command run");
+    expect(markup).not.toContain("Command run");
   });
 
-  it("styles interim assistant messages separately from the final answer", () => {
+  it("renders reasoning in full, in grey italics, under a Thinking heading", () => {
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          {
+            id: "entry-reasoning",
+            kind: "work",
+            createdAt: MESSAGE_CREATED_AT,
+            entry: {
+              id: "work-reasoning",
+              createdAt: MESSAGE_CREATED_AT,
+              label: "Thinking",
+              tone: "thinking",
+              reasoningText: "The guard runs after the handler, so it never fires.",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Thinking");
+    expect(markup).toContain("The guard runs after the handler, so it never fires.");
+    expect(markup).toContain("italic text-muted-foreground/70");
+    expect(markup).not.toContain("tool call");
+  });
+
+  it("renders interim assistant messages as plain prose, like the final answer", () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...buildProps()}
@@ -673,9 +700,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-assistant-message-kind="commentary"');
-    expect(markup).toContain('data-assistant-message-kind="final"');
-    expect(markup).toContain("italic text-muted-foreground/70");
+    expect(markup).toContain("I am checking the existing handler.");
+    expect(markup).toContain("The handler is fixed.");
+    expect(markup).not.toContain("italic text-muted-foreground/70");
+    expect(markup).not.toContain("data-assistant-message-kind");
   });
 
   it("renders review comment contexts as structured cards instead of raw tags", () => {

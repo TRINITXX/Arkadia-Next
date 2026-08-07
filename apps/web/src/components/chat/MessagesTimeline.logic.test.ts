@@ -994,10 +994,10 @@ describe("deriveMessagesTimelineRows", () => {
       expandedWorkGroupIds: new Set(["work-group:work-entry-1"]),
     });
 
-    expect(collapsedRows.map((row) => row.id)).toEqual(["work-3", "work-toggle:work-entry-1"]);
+    expect(collapsedRows.map((row) => row.id)).toEqual(["work-toggle:work-entry-1"]);
     expect(collapsedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
       groupId: "work-group:work-entry-1",
-      hiddenCount: 2,
+      entryCount: 3,
       expanded: false,
       onlyToolEntries: true,
     });
@@ -1009,6 +1009,125 @@ describe("deriveMessagesTimelineRows", () => {
     ]);
     expect(expandedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
       expanded: true,
+    });
+  });
+
+  it("keeps agent spawn rows visible while summarizing ordinary tool calls", () => {
+    const timelineEntries = [
+      {
+        id: "work-entry-1",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:01Z",
+        entry: {
+          id: "work-1",
+          createdAt: "2026-01-01T00:00:01Z",
+          label: "read",
+          tone: "tool" as const,
+        },
+      },
+      {
+        id: "work-entry-spawn",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:02Z",
+        entry: {
+          id: "work-spawn",
+          createdAt: "2026-01-01T00:00:02Z",
+          label: "Kicked off subagents",
+          tone: "info" as const,
+          agentSpawn: {
+            workflowId: null,
+            agentTaskIds: ["agent-1", "agent-2"],
+          },
+        },
+      },
+      {
+        id: "work-entry-2",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:03Z",
+        entry: {
+          id: "work-2",
+          createdAt: "2026-01-01T00:00:03Z",
+          label: "test",
+          tone: "tool" as const,
+        },
+      },
+    ];
+    const baseInput = {
+      timelineEntries,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    };
+
+    const collapsedRows = deriveMessagesTimelineRows(baseInput);
+    const expandedRows = deriveMessagesTimelineRows({
+      ...baseInput,
+      expandedWorkGroupIds: new Set(["work-group:work-entry-1"]),
+    });
+
+    expect(collapsedRows.map((row) => row.id)).toEqual(["work-spawn", "work-toggle:work-entry-1"]);
+    expect(collapsedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
+      entryCount: 2,
+      onlyToolEntries: true,
+    });
+    expect(expandedRows.map((row) => row.id)).toEqual([
+      "work-1",
+      "work-spawn",
+      "work-2",
+      "work-toggle:work-entry-1",
+    ]);
+  });
+
+  it("keeps reasoning rows visible and out of the tool-call count", () => {
+    const timelineEntries = [
+      {
+        id: "work-entry-1",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:01Z",
+        entry: {
+          id: "work-1",
+          createdAt: "2026-01-01T00:00:01Z",
+          label: "read",
+          tone: "tool" as const,
+        },
+      },
+      {
+        id: "work-entry-reasoning",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:02Z",
+        entry: {
+          id: "work-reasoning",
+          createdAt: "2026-01-01T00:00:02Z",
+          label: "Thinking",
+          tone: "thinking" as const,
+          reasoningText: "The handler runs before the guard, so the guard never fires.",
+        },
+      },
+      {
+        id: "work-entry-2",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:03Z",
+        entry: {
+          id: "work-2",
+          createdAt: "2026-01-01T00:00:03Z",
+          label: "test",
+          tone: "tool" as const,
+        },
+      },
+    ];
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => row.id)).toEqual(["work-reasoning", "work-toggle:work-entry-1"]);
+    expect(rows.find((row) => row.kind === "work-toggle")).toMatchObject({
+      entryCount: 2,
+      onlyToolEntries: true,
     });
   });
 });

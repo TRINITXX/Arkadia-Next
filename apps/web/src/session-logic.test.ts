@@ -22,6 +22,8 @@ import {
   workEntryIndicatesToolFailure,
   workEntryIndicatesToolNeutralStatus,
   workEntryIndicatesToolSuccess,
+  workLogEntryIsReasoning,
+  workLogEntryIsToolLike,
 } from "./session-logic";
 
 let nextActivityId = 0;
@@ -722,6 +724,31 @@ describe("deriveWorkLogEntries", () => {
 
     const entries = deriveWorkLogEntries(activities);
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+  });
+
+  it("derives a reasoning row that carries its whole text and no tool status", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning:thread:block",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "reasoning.updated",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          text: "First I check the handler,\nthen the caller.",
+          streamKind: "reasoning_text",
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities);
+    expect(entry?.reasoningText).toBe("First I check the handler,\nthen the caller.");
+    expect(entry?.tone).toBe("thinking");
+    expect(entry && workLogEntryIsReasoning(entry)).toBe(true);
+    // Tool-like classification would drag reasoning into the tool-call count
+    // and, worse, into the neutral filter that hides statusless tool rows.
+    expect(entry && workLogEntryIsToolLike(entry)).toBe(false);
+    expect(entry && workEntryIndicatesToolNeutralStatus(entry)).toBe(false);
   });
 
   it("omits task.started but shows task.progress and task.completed", () => {

@@ -950,6 +950,51 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("folds reasoning deltas into one activity carrying the whole block", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+
+    for (const [index, delta] of ["The guard runs ", "after the handler."].entries()) {
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId(`evt-reasoning-delta-${String(index)}`),
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: now,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-2"),
+        itemId: asItemId("reasoning-item-1"),
+        payload: {
+          streamKind: "reasoning_text",
+          delta,
+        },
+      });
+    }
+    // Anything else on the thread flushes the block, so the row is whole by
+    // the time the next piece of work renders under it.
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-reasoning-turn-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-2"),
+      status: "completed",
+    });
+
+    const thread = await waitForThread(harness.readModel, (entry) =>
+      entry.activities.some(
+        (activity) =>
+          activity.kind === "reasoning.updated" &&
+          (activity.payload as { text?: string }).text === "The guard runs after the handler.",
+      ),
+    );
+    const reasoningActivities = thread.activities.filter(
+      (activity) => activity.kind === "reasoning.updated",
+    );
+    expect(reasoningActivities).toHaveLength(1);
+    expect(reasoningActivities[0]?.turnId).toBe("turn-2");
+  });
+
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

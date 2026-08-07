@@ -5,7 +5,7 @@ import type {
   DesktopPreviewTabState,
 } from "@t3tools/contracts";
 import { exposeClerkBridge } from "@clerk/electron/preload";
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
 
@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getClientSettings: () => ipcRenderer.invoke(IpcChannels.GET_CLIENT_SETTINGS_CHANNEL),
   setClientSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.SET_CLIENT_SETTINGS_CHANNEL, settings),
+  getPathForFile: (file) => webUtils.getPathForFile(file as File),
   getConnectionCatalog: () => ipcRenderer.invoke(IpcChannels.GET_CONNECTION_CATALOG_CHANNEL),
   setConnectionCatalog: (catalog) =>
     ipcRenderer.invoke(IpcChannels.SET_CONNECTION_CATALOG_CHANNEL, catalog),
@@ -105,6 +106,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ...(position === undefined ? {} : { position }),
     }),
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
+  pressDictationHotkey: () => ipcRenderer.invoke(IpcChannels.PRESS_DICTATION_HOTKEY_CHANNEL),
   showNotification: (payload) => ipcRenderer.invoke(IpcChannels.NOTIFICATION_SHOW_CHANNEL, payload),
   notificationActivate: (id) => ipcRenderer.invoke(IpcChannels.NOTIFICATION_ACTIVATE_CHANNEL, id),
   notificationDismiss: (id) => ipcRenderer.invoke(IpcChannels.NOTIFICATION_DISMISS_CHANNEL, id),

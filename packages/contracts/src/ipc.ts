@@ -1014,6 +1014,12 @@ export interface DesktopBridge {
   getLocalEnvironmentBearerToken: () => Promise<string>;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
+  // Absolute filesystem path of a File the renderer got from a drag-drop or a
+  // file input, resolved through Electron's webUtils. Returns "" when the file
+  // is not backed by a real path. The parameter is `unknown` because this
+  // contract is shared with non-DOM packages that cannot name the `File` type;
+  // callers pass a DOM `File`.
+  getPathForFile: (file: unknown) => string;
   getConnectionCatalog?: () => Promise<string | null>;
   setConnectionCatalog?: (catalog: string) => Promise<boolean>;
   clearConnectionCatalog?: () => Promise<void>;
@@ -1054,6 +1060,12 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  // Presses the user's global dictation shortcut at the OS level so the
+  // composer's microphone button hands the gesture to their own dictation
+  // tool. Resolves to false when the keystroke could not be injected (no
+  // scripting host, unsupported platform). Optional: a renderer served by an
+  // older desktop shell falls back to the built-in dictation.
+  pressDictationHotkey?: () => Promise<boolean>;
   // Custom notification popup (desktop only). `showNotification` is called from
   // the main-window renderer; `notificationActivate`/`notificationDismiss` are
   // called from the popup window itself (its inline script), keyed by the id the

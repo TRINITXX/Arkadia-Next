@@ -3,6 +3,7 @@ export const CONFIRM_CHANNEL = "desktop:confirm";
 export const SET_THEME_CHANNEL = "desktop:set-theme";
 export const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 export const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
+export const PRESS_DICTATION_HOTKEY_CHANNEL = "desktop:press-dictation-hotkey";
 export const MENU_ACTION_CHANNEL = "desktop:menu-action";
 export const NOTIFICATION_SHOW_CHANNEL = "desktop:notification-show";
 export const NOTIFICATION_ACTIVATE_CHANNEL = "desktop:notification-activate";

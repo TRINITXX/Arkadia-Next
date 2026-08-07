@@ -12,6 +12,14 @@ function formatPercentage(value: number | null): string | null {
   return `${Math.round(value)}%`;
 }
 
+/** Compact label under the ring: whole percent only, so it stays legible at 9px. */
+function formatRingPercentage(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "—";
+  }
+  return `${Math.round(Math.max(0, Math.min(100, value)))}%`;
+}
+
 export function ContextWindowMeter(props: {
   usage: ContextWindowSnapshot;
   providerDisplayName?: string | null;
@@ -19,6 +27,9 @@ export function ContextWindowMeter(props: {
   const { usage, providerDisplayName } = props;
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
+  const ringPercentage = formatRingPercentage(
+    usage.maxTokens !== null ? usage.usedPercentage : null,
+  );
   const radius = 9.75;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - normalizedPercentage / 100);
@@ -39,7 +50,7 @@ export function ContextWindowMeter(props: {
           <button
             type="button"
             className={cn(
-              "inline-flex size-7 cursor-pointer items-center justify-center rounded-full border border-transparent text-muted-foreground outline-none transition-colors",
+              "inline-flex w-8 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md border border-transparent px-0.5 py-1 text-muted-foreground outline-none transition-colors",
               "hover:bg-accent data-[pressed]:bg-accent",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
             )}
@@ -49,7 +60,7 @@ export function ContextWindowMeter(props: {
                 : `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
             }
           >
-            <span className="relative flex size-5 items-center justify-center">
+            <span className="relative flex size-5 shrink-0 items-center justify-center">
               <svg
                 viewBox="0 0 24 24"
                 className="-rotate-90 absolute inset-0 size-full transform-gpu"
@@ -76,6 +87,12 @@ export function ContextWindowMeter(props: {
                   className="transition-[stroke-dashoffset,stroke] duration-500 ease-out motion-reduce:transition-none"
                 />
               </svg>
+            </span>
+            <span
+              className="font-medium text-[9px] leading-none tabular-nums text-muted-foreground/70"
+              aria-hidden="true"
+            >
+              {ringPercentage}
             </span>
           </button>
         }

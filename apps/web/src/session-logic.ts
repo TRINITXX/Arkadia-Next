@@ -77,6 +77,12 @@ export interface WorkLogEntry {
   rawCommand?: string;
   changedFiles?: ReadonlyArray<string>;
   tone: "thinking" | "tool" | "info" | "error";
+  /**
+   * The model's own train of thought, rendered in full rather than as a
+   * one-line tool preview. Present only on reasoning rows, which is what
+   * marks them out from every other kind of work.
+   */
+  reasoningText?: string;
   toolTitle?: string;
   toolData?: unknown;
   itemType?: ToolLifecycleItemType;
@@ -164,7 +170,15 @@ export type TimelineEntry =
       entry: WorkLogEntry;
     };
 
+/** Reasoning rows render their whole text; they are never tool activity. */
+export function workLogEntryIsReasoning(entry: WorkLogEntry): boolean {
+  return entry.reasoningText !== undefined;
+}
+
 export function workLogEntryIsToolLike(entry: WorkLogEntry): boolean {
+  if (workLogEntryIsReasoning(entry)) {
+    return false;
+  }
   if (entry.tone === "tool" || entry.tone === "thinking" || entry.tone === "error") {
     return true;
   }
@@ -779,6 +793,18 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
       : null;
+  if (activity.kind === "reasoning.updated") {
+    const text = typeof payload?.text === "string" ? payload.text : "";
+    return {
+      id: activity.id,
+      createdAt: activity.createdAt,
+      turnId: activity.turnId,
+      label: "Thinking",
+      tone: "thinking",
+      reasoningText: text,
+      activityKind: activity.kind,
+    };
+  }
   const commandPreview = extractToolCommand(payload);
   const changedFiles = extractChangedFiles(payload);
   const title = extractToolTitle(payload);
