@@ -1312,11 +1312,11 @@ function WorkGroupToggleTimelineRow({
         />
       </span>
       {row.expanded ? (
-        <span className="font-medium text-foreground/82">
+        <span className="font-medium text-muted-foreground">
           Show fewer {row.onlyToolEntries ? "tool calls" : "log entries"}
         </span>
       ) : (
-        <span className="font-medium text-foreground/82">
+        <span className="font-medium text-muted-foreground">
           {row.entryCount} {labelNoun}
         </span>
       )}
