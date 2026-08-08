@@ -1,11 +1,14 @@
-import { execFile, spawn } from "node:child_process";
-import * as NodeFs from "node:fs/promises";
+// @effect-diagnostics nodeBuiltinImport:off - Standalone Node script; it runs from a .bat before any Effect runtime exists.
+// @effect-diagnostics globalConsole:off - Console output is this script's user interface; there is no logger to route it through.
+// @effect-diagnostics globalDate:off - Build timestamps come from the wall clock the installer filename is stamped with.
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
-import process from "node:process";
-import { promisify } from "node:util";
-import { pathToFileURL } from "node:url";
+import * as NodeProcess from "node:process";
+import * as NodeUtil from "node:util";
+import * as NodeURL from "node:url";
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = NodeUtil.promisify(NodeChildProcess.execFile);
 
 export const configurationEntries = [
   { name: "settings.json", kind: "file" },
@@ -182,12 +185,15 @@ export function findBlockingArkadiaProcesses(
     normalizeWindowsExecutablePath(paths.developmentElectronPath),
   ]);
 
+  // Named `snapshot`, not `process`: the parameter would otherwise shadow the
+  // Node global of the same name, and every read here means "the process being
+  // inspected", never "this script's own process".
   return processes.filter(
-    (process) =>
-      process.pid === paths.developmentServerPid ||
-      (process.executablePath !== null &&
-        (blockedPaths.has(normalizeWindowsExecutablePath(process.executablePath)) ||
-          NodePath.win32.basename(process.executablePath).toLocaleLowerCase("en-US") ===
+    (snapshot) =>
+      snapshot.pid === paths.developmentServerPid ||
+      (snapshot.executablePath !== null &&
+        (blockedPaths.has(normalizeWindowsExecutablePath(snapshot.executablePath)) ||
+          NodePath.win32.basename(snapshot.executablePath).toLocaleLowerCase("en-US") ===
             "arkadia.exe")),
   );
 }
@@ -198,7 +204,7 @@ function makeBackupTimestamp(now: Date): string {
 
 async function pathExists(path: string): Promise<boolean> {
   try {
-    await NodeFs.access(path);
+    await NodeFSP.access(path);
     return true;
   } catch {
     return false;
@@ -210,12 +216,12 @@ async function copyConfigurationEntry(
   destination: string,
   kind: ConfigurationSyncPlanEntry["kind"],
 ): Promise<void> {
-  await NodeFs.mkdir(NodePath.dirname(destination), { recursive: true });
+  await NodeFSP.mkdir(NodePath.dirname(destination), { recursive: true });
   if (kind === "directory") {
-    await NodeFs.cp(source, destination, { recursive: true, force: true });
+    await NodeFSP.cp(source, destination, { recursive: true, force: true });
     return;
   }
-  await NodeFs.copyFile(source, destination);
+  await NodeFSP.copyFile(source, destination);
 }
 
 export async function synchronizeConfiguration(
@@ -231,7 +237,7 @@ export async function synchronizeConfiguration(
     backupDirectory,
   );
 
-  await NodeFs.mkdir(options.productionDirectory, { recursive: true });
+  await NodeFSP.mkdir(options.productionDirectory, { recursive: true });
   for (const entry of plan) {
     if (!(await pathExists(entry.source))) continue;
     if (await pathExists(entry.destination)) {
@@ -274,7 +280,7 @@ export async function runLocalArkadiaUpdate(
 }
 
 async function readJsonFile(path: string): Promise<unknown> {
-  return JSON.parse(await NodeFs.readFile(path, "utf8")) as unknown;
+  return JSON.parse(await NodeFSP.readFile(path, "utf8")) as unknown;
 }
 
 async function readDevelopmentServerPid(runtimePath: string): Promise<number | undefined> {
@@ -290,7 +296,7 @@ async function readDevelopmentServerPid(runtimePath: string): Promise<number | u
 
 async function resolveExistingPath(path: string): Promise<string> {
   try {
-    return await NodeFs.realpath(path);
+    return await NodeFSP.realpath(path);
   } catch {
     return path;
   }
@@ -334,7 +340,7 @@ async function runVisibleCommand(
   } = {},
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, [...args], {
+    const child = NodeChildProcess.spawn(command, [...args], {
       cwd: options.cwd,
       env: options.env,
       stdio: "inherit",
@@ -384,7 +390,7 @@ function makeRealOperations(input: {
       }),
     build: async (version) => {
       console.log(`\nCompilation d'Arkadia ${version}...\n`);
-      const commandInterpreter = process.env.ComSpec ?? "cmd.exe";
+      const commandInterpreter = NodeProcess.env.ComSpec ?? "cmd.exe";
       await runVisibleCommand(commandInterpreter, ["/d", "/s", "/c", "pnpm dist:desktop:win:x64"], {
         cwd: input.paths.repositoryRoot,
         env: {
@@ -413,7 +419,7 @@ function makeRealOperations(input: {
           `L'exécutable installé est introuvable : ${input.paths.installedExecutablePath}`,
         );
       }
-      const child = spawn(input.paths.installedExecutablePath, [], {
+      const child = NodeChildProcess.spawn(input.paths.installedExecutablePath, [], {
         detached: true,
         stdio: "ignore",
         windowsHide: false,
@@ -457,13 +463,13 @@ function makeDryRunOperations(input: {
 }
 
 async function main(): Promise<void> {
-  if (process.platform !== "win32") {
+  if (NodeProcess.platform !== "win32") {
     throw new Error("Cette automatisation locale Arkadia est réservée à Windows.");
   }
-  const args = parseLocalUpdateArgs(process.argv.slice(2));
-  const repositoryRoot = process.cwd();
-  const homeDirectory = process.env.USERPROFILE;
-  const localAppDataDirectory = process.env.LOCALAPPDATA;
+  const args = parseLocalUpdateArgs(NodeProcess.argv.slice(2));
+  const repositoryRoot = NodeProcess.cwd();
+  const homeDirectory = NodeProcess.env.USERPROFILE;
+  const localAppDataDirectory = NodeProcess.env.LOCALAPPDATA;
   if (!homeDirectory || !localAppDataDirectory) {
     throw new Error("USERPROFILE ou LOCALAPPDATA est indisponible.");
   }
@@ -495,14 +501,17 @@ async function main(): Promise<void> {
   console.log(`Mise à jour Arkadia ${result.version} terminée.`);
 }
 
-const entryPath = process.argv[1];
+const entryPath = NodeProcess.argv[1];
 if (
   entryPath !== undefined &&
-  import.meta.url === pathToFileURL(NodePath.resolve(entryPath)).href
+  import.meta.url === NodeURL.pathToFileURL(NodePath.resolve(entryPath)).href
 ) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`\nERREUR : ${message}`);
-    process.exitCode = 1;
+    // Assigning rather than calling `exit()` lets the error above finish
+    // flushing to the console. The namespace import types `exitCode` as a
+    // read-only binding, so the assignment goes through the global.
+    globalThis.process.exitCode = 1;
   });
 }

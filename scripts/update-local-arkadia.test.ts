@@ -1,5 +1,7 @@
-import * as NodeFs from "node:fs/promises";
-import * as NodeOs from "node:os";
+// @effect-diagnostics nodeBuiltinImport:off - Exercises the standalone Node script through the same filesystem boundaries it uses.
+// @effect-diagnostics globalDate:off - Fixtures pin wall-clock instants to assert the generated build version.
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
@@ -123,21 +125,21 @@ describe("local Arkadia update workflow", () => {
   });
 
   it("backs up production configuration before replacing it without touching production state", async () => {
-    const root = await NodeFs.mkdtemp(NodePath.join(NodeOs.tmpdir(), "arkadia-config-sync-"));
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "arkadia-config-sync-"));
     const developmentDirectory = NodePath.join(root, "dev");
     const productionDirectory = NodePath.join(root, "userdata");
     const backupRoot = NodePath.join(root, "backups");
-    await NodeFs.mkdir(NodePath.join(developmentDirectory, "secrets"), { recursive: true });
-    await NodeFs.mkdir(NodePath.join(productionDirectory, "secrets"), { recursive: true });
-    await NodeFs.writeFile(NodePath.join(developmentDirectory, "settings.json"), "dev-settings");
-    await NodeFs.writeFile(
+    await NodeFSP.mkdir(NodePath.join(developmentDirectory, "secrets"), { recursive: true });
+    await NodeFSP.mkdir(NodePath.join(productionDirectory, "secrets"), { recursive: true });
+    await NodeFSP.writeFile(NodePath.join(developmentDirectory, "settings.json"), "dev-settings");
+    await NodeFSP.writeFile(
       NodePath.join(developmentDirectory, "client-settings.json"),
       "dev-client",
     );
-    await NodeFs.writeFile(NodePath.join(developmentDirectory, "secrets", "kimi"), "dev-secret");
-    await NodeFs.writeFile(NodePath.join(productionDirectory, "settings.json"), "prod-settings");
-    await NodeFs.writeFile(NodePath.join(productionDirectory, "state.sqlite"), "prod-history");
-    await NodeFs.writeFile(
+    await NodeFSP.writeFile(NodePath.join(developmentDirectory, "secrets", "kimi"), "dev-secret");
+    await NodeFSP.writeFile(NodePath.join(productionDirectory, "settings.json"), "prod-settings");
+    await NodeFSP.writeFile(NodePath.join(productionDirectory, "state.sqlite"), "prod-history");
+    await NodeFSP.writeFile(
       NodePath.join(productionDirectory, "secrets", "production-only"),
       "keep",
     );
@@ -149,23 +151,23 @@ describe("local Arkadia update workflow", () => {
       now: new Date("2026-08-05T21:15:42.000Z"),
     });
 
-    expect(await NodeFs.readFile(NodePath.join(productionDirectory, "settings.json"), "utf8")).toBe(
-      "dev-settings",
-    );
     expect(
-      await NodeFs.readFile(NodePath.join(result.backupDirectory, "settings.json"), "utf8"),
+      await NodeFSP.readFile(NodePath.join(productionDirectory, "settings.json"), "utf8"),
+    ).toBe("dev-settings");
+    expect(
+      await NodeFSP.readFile(NodePath.join(result.backupDirectory, "settings.json"), "utf8"),
     ).toBe("prod-settings");
-    expect(await NodeFs.readFile(NodePath.join(productionDirectory, "state.sqlite"), "utf8")).toBe(
+    expect(await NodeFSP.readFile(NodePath.join(productionDirectory, "state.sqlite"), "utf8")).toBe(
       "prod-history",
     );
     expect(
-      await NodeFs.readFile(
+      await NodeFSP.readFile(
         NodePath.join(productionDirectory, "secrets", "production-only"),
         "utf8",
       ),
     ).toBe("keep");
     expect(
-      await NodeFs.readFile(NodePath.join(productionDirectory, "secrets", "kimi"), "utf8"),
+      await NodeFSP.readFile(NodePath.join(productionDirectory, "secrets", "kimi"), "utf8"),
     ).toBe("dev-secret");
   });
 
