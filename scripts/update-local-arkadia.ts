@@ -81,21 +81,31 @@ export interface LocalArkadiaUpdateResult {
   readonly installerPath: string | null;
 }
 
-function formatLocalTimestamp(now: Date, separator: "." | "-"): string {
+function formatLocalTimestampParts(now: Date): { readonly date: string; readonly time: string } {
   const pad = (value: number) => value.toString().padStart(2, "0");
-  return [
-    now.getFullYear().toString(),
-    pad(now.getMonth() + 1),
-    pad(now.getDate()),
-    separator,
-    pad(now.getHours()),
-    pad(now.getMinutes()),
-    pad(now.getSeconds()),
-  ].join("");
+  return {
+    date: `${now.getFullYear().toString()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`,
+    time: `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`,
+  };
+}
+
+function formatLocalTimestamp(now: Date, separator: "." | "-"): string {
+  const { date, time } = formatLocalTimestampParts(now);
+  return `${date}${separator}${time}`;
+}
+
+// Semver forbids leading zeros in numeric prerelease identifiers, so
+// electron-builder normalizes `...local.20260808.030154` to `...30154` before
+// expanding `${version}` in the artifact name. Emitting the canonical form here
+// keeps the version we build, the version the app reports and the installer
+// file name identical.
+function stripLeadingZeros(numericIdentifier: string): string {
+  return numericIdentifier.replace(/^0+(?=\d)/, "");
 }
 
 export function makeLocalBuildVersion(baseVersion: string, now: Date): string {
-  return `${baseVersion}-local.${formatLocalTimestamp(now, ".")}`;
+  const { date, time } = formatLocalTimestampParts(now);
+  return `${baseVersion}-local.${date}.${stripLeadingZeros(time)}`;
 }
 
 export function parseLocalUpdateArgs(args: readonly string[]): LocalUpdateCliArgs {

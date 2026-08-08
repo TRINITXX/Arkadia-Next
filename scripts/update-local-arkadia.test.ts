@@ -23,6 +23,15 @@ describe("local Arkadia update workflow", () => {
     );
   });
 
+  it("emits a canonical semver prerelease so the installer name matches before midday", () => {
+    expect(makeLocalBuildVersion("0.0.31", new Date(2026, 7, 8, 3, 1, 54))).toBe(
+      "0.0.31-local.20260808.30154",
+    );
+    expect(makeLocalBuildVersion("0.0.31", new Date(2026, 7, 8, 0, 0, 0))).toBe(
+      "0.0.31-local.20260808.0",
+    );
+  });
+
   it("synchronizes only the explicit configuration allowlist", () => {
     expect(configurationEntries).toEqual([
       { name: "settings.json", kind: "file" },
