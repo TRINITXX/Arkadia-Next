@@ -2456,7 +2456,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // needs Electron's webUtils, so this only works in the desktop app; in a
   // plain browser a File never exposes its path, and we say so rather than
   // silently doing nothing.
-  const insertDroppedFilePaths = (files: File[]) => {
+  const insertDroppedFilePaths = (files: File[]): boolean => {
     const resolvePath = window.desktopBridge?.getPathForFile;
     if (resolvePath === undefined) {
       if (activeThreadId) {
@@ -2465,27 +2465,29 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           "Attaching non-image files is only available in the desktop app.",
         );
       }
-      return;
+      return false;
     }
     const paths: string[] = [];
     for (const file of files) {
       const path = resolvePath(file);
       if (path.length > 0) paths.push(path);
     }
-    if (paths.length === 0) return;
-    insertComposerTextAtEnd(quoteRecentFilePathsForPrompt(paths), {
+    if (paths.length === 0) return false;
+    return insertComposerTextAtEnd(quoteRecentFilePathsForPrompt(paths), {
       ensureLeadingBoundary: true,
     });
   };
 
   // Routes each dropped or picked file to its lane: images become real
   // attachments, everything else gets its path pasted into the prompt.
-  const attachFilesToComposer = (files: File[]) => {
-    if (files.length === 0) return;
+  // Reports whether prompt text was written, because that decides who gets to
+  // focus the editor afterwards — see the callers.
+  const attachFilesToComposer = (files: File[]): boolean => {
+    if (files.length === 0) return false;
     const images = files.filter((file) => file.type.startsWith("image/"));
     const others = files.filter((file) => !file.type.startsWith("image/"));
     if (images.length > 0) void addComposerImages(images);
-    if (others.length > 0) insertDroppedFilePaths(others);
+    return others.length > 0 && insertDroppedFilePaths(others);
   };
 
   const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
@@ -2528,8 +2530,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
     const files = Array.from(event.dataTransfer.files);
-    attachFilesToComposer(files);
-    focusComposer();
+    // Focusing here once a path has been written would undo the write: the
+    // editor has not reconciled the new prompt yet and syncs its stale empty
+    // state back over it. The insert path already focuses on the next frame.
+    if (!attachFilesToComposer(files)) focusComposer();
   };
 
   const openAttachmentPicker = () => {
@@ -2547,8 +2551,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     // still fires a change event.
     event.target.value = "";
     if (files.length === 0) return;
-    attachFilesToComposer(files);
-    focusComposer();
+    // Same no-eager-focus rule as the drop path above.
+    if (!attachFilesToComposer(files)) focusComposer();
   };
 
   const insertComposerTextAtEnd = (
