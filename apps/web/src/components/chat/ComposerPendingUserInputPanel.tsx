@@ -5,7 +5,7 @@ import {
   derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 
 interface PendingUserInputPanelProps {
@@ -15,6 +15,9 @@ interface PendingUserInputPanelProps {
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => void;
   onAdvance: () => void;
+  // Desktop-only: allow collapsing the question into a compact pill so the
+  // conversation behind it stays readable. Mobile has its own collapsed composer.
+  allowCollapse?: boolean;
 }
 
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
@@ -24,6 +27,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   questionIndex,
   onToggleOption,
   onAdvance,
+  allowCollapse = false,
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
   const activePrompt = pendingUserInputs[0];
@@ -38,6 +42,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       questionIndex={questionIndex}
       onToggleOption={onToggleOption}
       onAdvance={onAdvance}
+      allowCollapse={allowCollapse}
     />
   );
 });
@@ -49,6 +54,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   questionIndex,
   onToggleOption,
   onAdvance,
+  allowCollapse,
 }: {
   prompt: PendingUserInput;
   isResponding: boolean;
@@ -56,11 +62,15 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => void;
   onAdvance: () => void;
+  allowCollapse: boolean;
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const onAdvanceRef = useRef(onAdvance);
+  // Local collapse state. The card is keyed by requestId in the parent, so this
+  // resets to `false` automatically whenever a new question arrives.
+  const [collapsed, setCollapsed] = useState(false);
   const [optimisticSingleSelect, setOptimisticSingleSelect] = useState<{
     questionId: string;
     optionLabel: string;
@@ -120,7 +130,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // outside editable fields. Multi-select prompts toggle options in place; single-
   // select prompts keep the existing auto-advance behavior.
   useEffect(() => {
-    if (!activeQuestion || isResponding) return;
+    if (!activeQuestion || isResponding || collapsed) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target;
@@ -144,13 +154,39 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [activeQuestion, isResponding]);
+  }, [activeQuestion, isResponding, collapsed]);
 
   if (!activeQuestion) {
     return null;
   }
 
   const customAnswerActive = progress.customAnswer.trim().length > 0;
+
+  if (allowCollapse && collapsed) {
+    return (
+      <div className="px-4 py-3 sm:px-5">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label="Ré-ouvrir la question"
+          className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-border/55 bg-background/55 px-3 py-2 text-left transition-colors hover:bg-background/80"
+        >
+          <span className="text-[11px] font-semibold tracking-widest text-muted-foreground/55 uppercase">
+            {activeQuestion.header}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm text-foreground/80">
+            {activeQuestion.question}
+          </span>
+          {prompt.questions.length > 1 ? (
+            <span className="flex h-5 shrink-0 items-center rounded-md bg-muted/60 px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground/60">
+              {questionIndex + 1}/{prompt.questions.length}
+            </span>
+          ) : null}
+          <ChevronUpIcon className="size-3.5 shrink-0 text-muted-foreground/55" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 py-3 sm:px-5">
@@ -162,6 +198,16 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           <span className="flex h-5 items-center rounded-md bg-muted/60 px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground/60">
             {questionIndex + 1}/{prompt.questions.length}
           </span>
+        ) : null}
+        {allowCollapse ? (
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            aria-label="Replier la question"
+            className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/55 transition-colors hover:bg-muted/40 hover:text-muted-foreground"
+          >
+            <ChevronDownIcon className="size-3.5" />
+          </button>
         ) : null}
       </div>
       <p className="text-sm text-foreground/90">{activeQuestion.question}</p>

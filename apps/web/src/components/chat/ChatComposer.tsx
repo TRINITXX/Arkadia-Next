@@ -3020,6 +3020,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   questionIndex={activePendingQuestionIndex}
                   onToggleOption={onSelectActivePendingUserInputOption}
                   onAdvance={onAdvanceActivePendingUserInput}
+                  allowCollapse
                 />
               </div>
             ) : showPlanFollowUpPrompt && activeProposedPlan ? (
