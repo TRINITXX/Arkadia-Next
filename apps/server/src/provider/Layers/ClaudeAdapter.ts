@@ -4168,6 +4168,14 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(permissionMode === "bypassPermissions"
           ? { allowDangerouslySkipPermissions: true }
           : {}),
+        // Reasoning display is `omitted` by default, which streams thinking
+        // blocks whose text is empty — the timeline would then have nothing to
+        // render. Asking for the summary is what makes reasoning visible at
+        // all; the raw chain of thought is never returned on any model.
+        // Skipped when the user has turned thinking off for this model.
+        ...(thinking === false
+          ? {}
+          : { thinking: { type: "adaptive" as const, display: "summarized" as const } }),
         ...(Object.keys(settings).length > 0 ? { settings } : {}),
         ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
         ...(newSessionId ? { sessionId: newSessionId } : {}),
