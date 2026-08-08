@@ -74,6 +74,7 @@ import {
 import { MergeCleanupService } from "./git/MergeCleanupService.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
+import { PromptSuggestionBus } from "./orchestration/Services/PromptSuggestionBus.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
@@ -361,6 +362,7 @@ const makeWsRpcLayer = (
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
+      const promptSuggestionBus = yield* PromptSuggestionBus;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -1287,6 +1289,21 @@ const makeWsRpcLayer = (
               const liveBuffer = yield* Queue.unbounded<OrchestrationThreadStreamItem>();
               yield* Effect.forkScoped(
                 liveStream.pipe(Stream.runForEach((item) => Queue.offer(liveBuffer, item))),
+              );
+              // Suggestions ride the same buffer so they reach the client on
+              // both the catch-up and the snapshot path, but they come off the
+              // transient bus rather than the event store: nothing to replay,
+              // nothing to resume, missed ones stay missed.
+              yield* Effect.forkScoped(
+                promptSuggestionBus.stream.pipe(
+                  Stream.filter((promptSuggestion) => promptSuggestion.threadId === input.threadId),
+                  Stream.runForEach((promptSuggestion) =>
+                    Queue.offer(liveBuffer, {
+                      kind: "prompt-suggestion" as const,
+                      promptSuggestion,
+                    }),
+                  ),
+                ),
               );
               const bufferedLiveStream = Stream.fromQueue(liveBuffer);
 

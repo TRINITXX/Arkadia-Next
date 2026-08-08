@@ -117,6 +117,15 @@ export function createEnvironmentThreadDetailAtoms<E>(
     ),
   );
 
+  const threadPromptSuggestionAtomFamily = Atom.family((key: string) =>
+    Atom.make((get) =>
+      Option.getOrNull(get(threadStateValueAtomFamily(key)).promptSuggestion),
+    ).pipe(
+      Atom.setIdleTTL(THREAD_STATE_IDLE_TTL_MS),
+      Atom.withLabel(`environment-thread-prompt-suggestion:${key}`),
+    ),
+  );
+
   const threadMessagesAtomFamily = Atom.family((key: string) =>
     Atom.make(
       (get): ReadonlyArray<OrchestrationMessage> =>
@@ -180,6 +189,8 @@ export function createEnvironmentThreadDetailAtoms<E>(
     detailAtom: (ref: ScopedThreadRef) => threadDetailAtomFamily(threadKey(ref)),
     statusAtom: (ref: ScopedThreadRef) => threadStatusAtomFamily(threadKey(ref)),
     errorAtom: (ref: ScopedThreadRef) => threadErrorAtomFamily(threadKey(ref)),
+    promptSuggestionAtom: (ref: ScopedThreadRef) =>
+      threadPromptSuggestionAtomFamily(threadKey(ref)),
     messagesAtom: (ref: ScopedThreadRef) => threadMessagesAtomFamily(threadKey(ref)),
     activitiesAtom: (ref: ScopedThreadRef) => threadActivitiesAtomFamily(threadKey(ref)),
     proposedPlansAtom: (ref: ScopedThreadRef) => threadProposedPlansAtomFamily(threadKey(ref)),

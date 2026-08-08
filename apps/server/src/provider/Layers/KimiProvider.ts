@@ -52,7 +52,10 @@ export function resolveKimiApiModelId(modelSelection: ModelSelection): string {
 }
 
 function asClaudeSettings(config: KimiSettings) {
-  return { ...config, customModels: [] };
+  // Prompt suggestions stay off here: the Claude runtime is only the transport,
+  // and asking a Kimi-backed session to predict the next prompt would spend
+  // Kimi tokens on a feature the composer only advertises for Claude.
+  return { ...config, customModels: [], promptSuggestions: false };
 }
 
 function presentKimiSnapshot(snapshot: ServerProviderDraft, apiKey: string) {

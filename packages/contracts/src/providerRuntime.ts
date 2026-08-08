@@ -183,6 +183,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "hook.completed",
   "tool.progress",
   "tool.summary",
+  "turn.prompt-suggestion",
   "auth.status",
   "account.updated",
   "account.rate-limits.updated",
@@ -234,6 +235,7 @@ const HookProgressType = Schema.Literal("hook.progress");
 const HookCompletedType = Schema.Literal("hook.completed");
 const ToolProgressType = Schema.Literal("tool.progress");
 const ToolSummaryType = Schema.Literal("tool.summary");
+const TurnPromptSuggestionType = Schema.Literal("turn.prompt-suggestion");
 const AuthStatusType = Schema.Literal("auth.status");
 const AccountUpdatedType = Schema.Literal("account.updated");
 const AccountRateLimitsUpdatedType = Schema.Literal("account.rate-limits.updated");
@@ -687,6 +689,16 @@ const ToolSummaryPayload = Schema.Struct({
 });
 export type ToolSummaryPayload = typeof ToolSummaryPayload.Type;
 
+/**
+ * The provider's guess at what the user will type next. Deliberately not part
+ * of any persisted projection: a suggestion is only worth offering while it is
+ * fresh, so it travels to the composer over the transient path and dies there.
+ */
+const TurnPromptSuggestionPayload = Schema.Struct({
+  suggestion: TrimmedNonEmptyStringSchema,
+});
+export type TurnPromptSuggestionPayload = typeof TurnPromptSuggestionPayload.Type;
+
 const AuthStatusPayload = Schema.Struct({
   isAuthenticating: Schema.optional(Schema.Boolean),
   output: Schema.optional(Schema.Array(Schema.String)),
@@ -1049,6 +1061,14 @@ const ProviderRuntimeToolSummaryEvent = Schema.Struct({
 });
 export type ProviderRuntimeToolSummaryEvent = typeof ProviderRuntimeToolSummaryEvent.Type;
 
+const ProviderRuntimeTurnPromptSuggestionEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: TurnPromptSuggestionType,
+  payload: TurnPromptSuggestionPayload,
+});
+export type ProviderRuntimeTurnPromptSuggestionEvent =
+  typeof ProviderRuntimeTurnPromptSuggestionEvent.Type;
+
 const ProviderRuntimeAuthStatusEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: AuthStatusType,
@@ -1174,6 +1194,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeHookCompletedEvent,
   ProviderRuntimeToolProgressEvent,
   ProviderRuntimeToolSummaryEvent,
+  ProviderRuntimeTurnPromptSuggestionEvent,
   ProviderRuntimeAuthStatusEvent,
   ProviderRuntimeAccountUpdatedEvent,
   ProviderRuntimeAccountRateLimitsUpdatedEvent,

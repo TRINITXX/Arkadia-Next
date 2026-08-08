@@ -2028,6 +2028,35 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     });
   });
 
+  // The SDK sends this after the turn's `result`, so `turnState` is normally
+  // already cleared by then; the composer only needs the thread it belongs to.
+  const emitPromptSuggestion = Effect.fn("emitPromptSuggestion")(function* (
+    context: ClaudeSessionContext,
+    message: Extract<SDKMessage, { type: "prompt_suggestion" }>,
+  ) {
+    const suggestion = message.suggestion.trim();
+    if (suggestion.length === 0) {
+      return;
+    }
+    const stamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "turn.prompt-suggestion",
+      eventId: stamp.eventId,
+      provider: PROVIDER,
+      createdAt: stamp.createdAt,
+      threadId: context.session.threadId,
+      ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+      payload: { suggestion },
+      providerRefs: nativeProviderRefs(context),
+      raw: {
+        source: "claude.sdk.message",
+        method: sdkNativeMethod(message),
+        messageType: message.type,
+        payload: message,
+      },
+    });
+  });
+
   const emitThreadTokenUsage = Effect.fn("emitThreadTokenUsage")(function* (
     context: ClaudeSessionContext,
     usage: ThreadTokenUsageSnapshot | undefined,
@@ -3573,8 +3602,8 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       case "rate_limit_event":
         yield* handleSdkTelemetryMessage(context, message);
         return;
-      // Composer prompt suggestions have no T3 surface; consumed deliberately.
       case "prompt_suggestion":
+        yield* emitPromptSuggestion(context, message);
         return;
       default: {
         // Exhaustiveness guard (see handleSystemMessage): new SDK top-level
@@ -4177,6 +4206,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ? {}
           : { thinking: { type: "adaptive" as const, display: "summarized" as const } }),
         ...(Object.keys(settings).length > 0 ? { settings } : {}),
+        // Asked for only when the instance wants them, so a turned-off setting
+        // costs no suggestion generation at all rather than one we discard.
+        ...(claudeSettings.promptSuggestions ? { promptSuggestions: true } : {}),
         ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,

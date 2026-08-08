@@ -1,6 +1,7 @@
 import {
   EnvironmentId,
   EventId,
+  MessageId,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ProviderInstanceId,
@@ -294,6 +295,41 @@ const titleUpdated = (title: string, sequence = 2): OrchestrationThreadStreamIte
   },
 });
 
+const promptSuggested = (suggestion: string): OrchestrationThreadStreamItem => ({
+  kind: "prompt-suggestion",
+  promptSuggestion: {
+    threadId: THREAD_ID,
+    suggestion,
+    createdAt: "2026-04-01T01:30:00.000Z",
+  },
+});
+
+const messageSent = (sequence: number): OrchestrationThreadStreamItem => ({
+  kind: "event",
+  event: {
+    eventId: EventId.make(`event-message-sent-${sequence}`),
+    sequence,
+    occurredAt: "2026-04-01T01:40:00.000Z",
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    aggregateKind: "thread",
+    aggregateId: THREAD_ID,
+    type: "thread.message-sent",
+    payload: {
+      threadId: THREAD_ID,
+      messageId: MessageId.make(`message-${sequence}`),
+      role: "user",
+      text: "Next prompt",
+      turnId: null,
+      streaming: false,
+      createdAt: "2026-04-01T01:40:00.000Z",
+      updatedAt: "2026-04-01T01:40:00.000Z",
+    },
+  },
+});
+
 const deleted = (): OrchestrationThreadStreamItem => ({
   kind: "event",
   event: {
@@ -436,6 +472,57 @@ describe("EnvironmentThreads", () => {
       );
 
       expect(Option.getOrThrow(state.data).title).toBe("Live title");
+    }),
+  );
+
+  it.effect("keeps the prompt suggestion across thread updates", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ cached: BASE_THREAD });
+      yield* Queue.offer(harness.inputs, snapshot(BASE_THREAD));
+      yield* Queue.offer(harness.inputs, promptSuggested("run the tests"));
+      yield* Queue.offer(harness.inputs, titleUpdated("Live title"));
+
+      const state = yield* awaitThreadState(
+        harness.observed,
+        (value) => Option.isSome(value.data) && value.data.value.title === "Live title",
+      );
+
+      expect(Option.getOrNull(state.promptSuggestion)).toBe("run the tests");
+    }),
+  );
+
+  it.effect("drops the prompt suggestion once a message is sent", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ cached: BASE_THREAD });
+      yield* Queue.offer(harness.inputs, snapshot(BASE_THREAD));
+      yield* Queue.offer(harness.inputs, promptSuggested("run the tests"));
+      yield* Queue.offer(harness.inputs, messageSent(2));
+
+      const state = yield* awaitThreadState(harness.observed, (value) =>
+        Option.isNone(value.promptSuggestion),
+      );
+
+      expect(Option.isNone(state.promptSuggestion)).toBe(true);
+    }),
+  );
+
+  it.effect("ignores a replayed send that predates the suggestion", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ cached: BASE_THREAD });
+      yield* Queue.offer(harness.inputs, snapshot(BASE_THREAD));
+      yield* Queue.offer(harness.inputs, messageSent(2));
+      yield* Queue.offer(harness.inputs, promptSuggested("run the tests"));
+      // Same sequence as the send already applied: a reconnect replay, not a
+      // new send, so the fresh suggestion must survive it.
+      yield* Queue.offer(harness.inputs, messageSent(2));
+      yield* Queue.offer(harness.inputs, titleUpdated("Live title", 3));
+
+      const state = yield* awaitThreadState(
+        harness.observed,
+        (value) => Option.isSome(value.data) && value.data.value.title === "Live title",
+      );
+
+      expect(Option.getOrNull(state.promptSuggestion)).toBe("run the tests");
     }),
   );
 

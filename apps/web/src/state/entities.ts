@@ -50,6 +50,9 @@ const EMPTY_THREAD_DETAIL_ATOM = Atom.make<EnvironmentThread | null>(null).pipe(
 const EMPTY_THREAD_STATUS_ATOM = Atom.make<EnvironmentThreadStatus>("empty").pipe(
   Atom.withLabel("web-thread-status:empty"),
 );
+const EMPTY_PROMPT_SUGGESTION_ATOM = Atom.make<string | null>(null).pipe(
+  Atom.withLabel("web-thread-prompt-suggestion:empty"),
+);
 const EMPTY_MESSAGES_ATOM = Atom.make(EMPTY_MESSAGES).pipe(
   Atom.withLabel("web-thread-messages:empty"),
 );
@@ -149,6 +152,15 @@ export function useThreadDetail(ref: ScopedThreadRef | null): EnvironmentThread 
 export function useThreadStatus(ref: ScopedThreadRef | null): EnvironmentThreadStatus {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_STATUS_ATOM : environmentThreadDetails.statusAtom(ref),
+  );
+}
+
+/** The provider's guess at the next prompt, or null when there is none to offer. */
+export function useThreadPromptSuggestion(ref: ScopedThreadRef | null): string | null {
+  return useAtomValue(
+    ref === null
+      ? EMPTY_PROMPT_SUGGESTION_ATOM
+      : environmentThreadDetails.promptSuggestionAtom(ref),
   );
 }
 

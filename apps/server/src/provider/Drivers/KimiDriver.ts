@@ -119,7 +119,9 @@ export const KimiDriver: ProviderDriver<KimiSettings, KimiDriverEnv> = {
         env: defaultEnvironment,
       });
 
-      const claudeSettings = { ...effectiveConfig, customModels: [] };
+      // See `asClaudeSettings` in KimiProvider: Claude's prompt suggestions are
+      // not offered on a Kimi-backed session.
+      const claudeSettings = { ...effectiveConfig, customModels: [], promptSuggestions: false };
       const claudeAdapter = yield* makeClaudeAdapter(claudeSettings, {
         instanceId,
         environment: defaultEnvironment,

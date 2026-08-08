@@ -73,6 +73,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     data: cachedThread,
     status: statusWithoutLiveData(cachedThread),
     error: Option.none(),
+    promptSuggestion: Option.none(),
   });
   // Seed the resume cursor from the cached snapshot so a warm cache can catch up
   // via `afterSequence` instead of re-downloading the full thread body.
@@ -145,11 +146,15 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     thread: OrchestrationThread,
   ) {
     const waiting = yield* Ref.get(awaitingCompletion);
-    yield* SubscriptionRef.set(state, {
+    // Carries the standing suggestion across thread updates: a turn refreshes
+    // this state many times per second, and none of those refreshes are what
+    // makes a suggestion stale — only sending is.
+    yield* SubscriptionRef.update(state, (current) => ({
       data: Option.some(thread),
-      status: waiting ? "synchronizing" : "live",
+      status: waiting ? ("synchronizing" as const) : ("live" as const),
       error: Option.none(),
-    });
+      promptSuggestion: current.promptSuggestion,
+    }));
     // Active threads can update many times per second and retain large tool
     // payloads. The server remains the source of truth while a turn is active;
     // persist once it settles so cache encoding stays off the streaming path.
@@ -165,6 +170,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       data: Option.none(),
       status: "deleted",
       error: Option.none(),
+      promptSuggestion: Option.none(),
     });
     yield* cache.removeThread(environmentId, threadId).pipe(
       Effect.catch((error) =>
@@ -198,11 +204,31 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       return;
     }
 
+    if (item.kind === "prompt-suggestion") {
+      yield* SubscriptionRef.update(state, (current) => ({
+        ...current,
+        promptSuggestion: Option.some(item.promptSuggestion.suggestion),
+      }));
+      return;
+    }
+
     const sequence = yield* SubscriptionRef.get(lastSequence);
     if (item.event.sequence <= sequence) {
       return;
     }
     yield* SubscriptionRef.set(lastSequence, item.event.sequence);
+
+    // Sending makes the standing guess obsolete, whoever sent it and from
+    // wherever: the next one arrives when that turn ends. Checked past the
+    // sequence guard so a replayed send on reconnect cannot wipe a suggestion
+    // that arrived after it.
+    if (item.event.type === "thread.message-sent") {
+      yield* SubscriptionRef.update(state, (current) =>
+        Option.isNone(current.promptSuggestion)
+          ? current
+          : { ...current, promptSuggestion: Option.none() },
+      );
+    }
 
     const current = yield* SubscriptionRef.get(state);
     if (Option.isNone(current.data)) {

@@ -104,6 +104,10 @@ import { quoteRecentFilePathsForPrompt } from "./RecentFilesPicker.logic";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { searchSlashCommandItems } from "./composerSlashCommandSearch";
 import {
+  resolveComposerPromptSuggestion,
+  shouldAcceptPromptSuggestionOnTab,
+} from "./composerPromptSuggestion";
+import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -112,6 +116,7 @@ import {
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { AccountQuotaMeter } from "./AccountQuotaMeter";
 import { deriveAccountRateLimits } from "~/lib/accountRateLimits";
+import { useThreadPromptSuggestion } from "~/state/entities";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../pierre-icons";
 import { cn, randomUUID } from "~/lib/utils";
@@ -1145,6 +1150,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     projectSelectionRequired ||
     pendingUserInputs.length > 0 ||
     composerImages.length >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS;
+  const threadPromptSuggestion = useThreadPromptSuggestion(
+    routeKind === "server" ? routeThreadRef : null,
+  );
+  const composerPromptSuggestion = resolveComposerPromptSuggestion({
+    suggestion: threadPromptSuggestion,
+    isApprovalState: isComposerApprovalState,
+    hasPendingProgress: activePendingProgress !== null,
+    pendingUserInputCount: pendingUserInputs.length,
+    awaitingPlanFollowUp: showPlanFollowUpPrompt && activeProposedPlan !== null,
+    projectSelectionRequired,
+    noProviderAvailable,
+  });
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const hasComposerHeader =
     isComposerApprovalState ||
@@ -1964,6 +1981,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onSelectComposerItem(selectedItem);
         return true;
       }
+    }
+    // Writes the text and stops there: sending stays a deliberate second
+    // keystroke, which matters with permissions on automatic.
+    if (
+      key === "Tab" &&
+      shouldAcceptPromptSuggestionOnTab({
+        suggestion: composerPromptSuggestion,
+        promptLength: promptRef.current.length,
+      }) &&
+      composerPromptSuggestion !== null
+    ) {
+      return insertComposerTextAtEnd(composerPromptSuggestion);
     }
     if (
       key === "Enter" &&
@@ -3381,10 +3410,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           ? "Choose a project above to start a thread"
                           : noProviderAvailable
                             ? "Enable a provider in Settings to send a message"
-                            : phase === "disconnected"
-                              ? "Ask for follow-up changes or attach images"
-                              : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                            : composerPromptSuggestion !== null
+                              ? composerPromptSuggestion
+                              : phase === "disconnected"
+                                ? "Ask for follow-up changes or attach images"
+                                : "Ask anything, @tag files/folders, $use skills, or / for commands"
                 }
+                {...(composerPromptSuggestion !== null ? { placeholderKeyHint: "⇥" } : {})}
                 disabled={isConnecting || isComposerApprovalState || projectSelectionRequired}
               />
               {showMobilePendingAnswerActions ? (

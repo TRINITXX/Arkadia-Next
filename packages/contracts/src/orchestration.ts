@@ -1369,6 +1369,20 @@ export const OrchestrationEvent = Schema.Union([
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
+/**
+ * A provider's guess at the user's next prompt, offered in the composer.
+ *
+ * Unlike everything else on the thread stream this is not an event: it is
+ * never persisted, never replayed, and a client that reconnects simply does
+ * not get the one it missed. A stale suggestion is worse than none.
+ */
+export const ThreadPromptSuggestion = Schema.Struct({
+  threadId: ThreadId,
+  suggestion: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+export type ThreadPromptSuggestion = typeof ThreadPromptSuggestion.Type;
+
 export const OrchestrationThreadStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("synchronized"),
@@ -1380,6 +1394,10 @@ export const OrchestrationThreadStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("event"),
     event: OrchestrationEvent,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("prompt-suggestion"),
+    promptSuggestion: ThreadPromptSuggestion,
   }),
 ]);
 export type OrchestrationThreadStreamItem = typeof OrchestrationThreadStreamItem.Type;

@@ -480,9 +480,17 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    promptSuggestions: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({
+        title: "Prompt suggestions",
+        description:
+          "Predict the next prompt after each turn and offer it in the composer. Claude never suggests on the first turn of a thread, after an API error, or in plan mode.",
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "launchArgs"],
+    order: ["binaryPath", "homePath", "launchArgs", "promptSuggestions"],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;

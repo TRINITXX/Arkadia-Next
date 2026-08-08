@@ -194,6 +194,19 @@ CLAUDE_CONFIG_DIR path: ~/.claude_router_home
 Follow the upstream project's README for the router's own install, startup, and configuration
 steps: <https://github.com/musistudio/claude-code-router>.
 
+## The Composer Suggests My Next Prompt
+
+When Claude finishes a turn it predicts what you are likely to ask next, and the composer shows
+that prediction in grey with a `⇥` key-cap. Press Tab to write it into the composer; nothing is
+sent until you send it. Type anything and the suggestion disappears; clear the composer and it
+comes back. It is never saved — reload Arkadia and it is gone.
+
+Turn it off with `Prompt suggestions` in the provider's settings. The change applies to sessions
+started afterwards.
+
+Claude deliberately makes no suggestion on the first turn of a thread, after an API error, or in
+plan mode. Other providers do not offer this at all.
+
 ## I Want Different Claude Settings, Not A Different Account
 
 Create another Claude provider with the same account if you want a named preset.

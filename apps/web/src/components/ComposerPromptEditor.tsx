@@ -883,6 +883,12 @@ interface ComposerPromptEditorProps {
   skills: ReadonlyArray<ServerProviderSkill>;
   disabled: boolean;
   placeholder: string;
+  /**
+   * Rendered as a key-cap right after the placeholder text. Set it when the
+   * placeholder is something the user can act on — an offered prompt — rather
+   * than the usual inert hint, so the keystroke that takes it is discoverable.
+   */
+  placeholderKeyHint?: string;
   className?: string;
   onRemoveTerminalContext: (contextId: string) => void;
   onChange: (
@@ -1532,6 +1538,7 @@ function ComposerPromptEditorInner({
   skills,
   disabled,
   placeholder,
+  placeholderKeyHint,
   className,
   onRemoveTerminalContext,
   onChange,
@@ -1767,6 +1774,11 @@ function ComposerPromptEditorInner({
             terminalContexts.length > 0 ? null : (
               <div className="pointer-events-none absolute inset-0 leading-relaxed text-muted-foreground/35">
                 {placeholder}
+                {placeholderKeyHint ? (
+                  <span className="ml-1.5 inline-flex translate-y-[-1px] items-center rounded border border-muted-foreground/25 px-1 align-middle text-[0.7em] leading-4 text-muted-foreground/60">
+                    {placeholderKeyHint}
+                  </span>
+                ) : null}
               </div>
             )
           }
@@ -1794,6 +1806,7 @@ export function ComposerPromptEditor({
   skills,
   disabled,
   placeholder,
+  placeholderKeyHint,
   className,
   onRemoveTerminalContext,
   onChange,
@@ -1832,6 +1845,7 @@ export function ComposerPromptEditor({
         skills={skills}
         disabled={disabled}
         placeholder={placeholder}
+        {...(placeholderKeyHint ? { placeholderKeyHint } : {})}
         onRemoveTerminalContext={onRemoveTerminalContext}
         onChange={onChange}
         onPaste={onPaste}

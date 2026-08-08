@@ -35,6 +35,7 @@ import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionT
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { PromptSuggestionBus } from "../Services/PromptSuggestionBus.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -1022,6 +1023,7 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
+  const promptSuggestionBus = yield* PromptSuggestionBus;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
@@ -2329,7 +2331,16 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       yield* forkParked(
         Stream.runForEach(providerService.streamEvents, (event) =>
-          worker.enqueue({ source: "runtime", event }),
+          // Prompt suggestions leave the pipeline here, before the ingestion
+          // queue: they produce no command, no activity and no projection, and
+          // a suggestion that waited behind a backlog is already stale.
+          event.type === "turn.prompt-suggestion"
+            ? promptSuggestionBus.publish({
+                threadId: event.threadId,
+                suggestion: event.payload.suggestion,
+                createdAt: event.createdAt,
+              })
+            : worker.enqueue({ source: "runtime", event }),
         ),
       );
       yield* forkParked(
